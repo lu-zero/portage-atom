@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 /// Tracks packaging changes independently of the upstream version.
 /// A revision of `0` is the implicit default and is omitted from display.
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#x1-200003.2).
+/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#version-specifications).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Revision(pub u64);
 
@@ -47,8 +47,8 @@ impl Ord for Revision {
 /// `Alpha`, `Beta`, `Pre`, and `Rc` sort *below* the unsuffixed version,
 /// while `P` (patchlevel) sorts *above* it.
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#x1-200003.2)
-/// and [Algorithm 3.1](https://projects.gentoo.org/pms/latest/pms.html#x1-260003.3).
+/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#version-specifications)
+/// and [Algorithm 3.1](https://projects.gentoo.org/pms/latest/pms.html#version-comparison).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SuffixKind {
     /// `_alpha` — earliest pre-release stage.
@@ -108,7 +108,7 @@ impl FromStr for SuffixKind {
 /// Represents one `_alpha`, `_beta`, `_pre`, `_rc`, or `_p` segment,
 /// optionally followed by a number (e.g. `_rc2`, `_p1`).
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#x1-200003.2).
+/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#version-specifications).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Suffix {
     /// The suffix type (`_alpha`, `_beta`, `_pre`, `_rc`, or `_p`).
@@ -156,7 +156,7 @@ impl Ord for Suffix {
 /// Used as a prefix on versioned dependencies to constrain which versions
 /// satisfy the dependency.
 ///
-/// See [PMS 8.3.2](https://projects.gentoo.org/pms/latest/pms.html#x1-830008.3.2).
+/// See [PMS 8.3.1](https://projects.gentoo.org/pms/latest/pms.html#operators).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operator {
     /// `<` — strictly less than the specified version.
@@ -196,12 +196,12 @@ impl fmt::Display for Operator {
 /// Represents a version string such as `1.2.3a_alpha4_beta5_pre6_rc7_p8-r9`.
 ///
 /// Ordering implements
-/// [Algorithm 3.1](https://projects.gentoo.org/pms/latest/pms.html#x1-260003.3):
+/// [Algorithm 3.1](https://projects.gentoo.org/pms/latest/pms.html#version-comparison):
 /// numeric components are compared left-to-right, then the optional letter,
 /// then suffixes (where `_p` sorts above the base while `_alpha`/`_beta`/`_pre`/`_rc`
 /// sort below), and finally the revision.
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#x1-200003.2)
+/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#version-specifications)
 /// for the full version syntax.
 ///
 /// # Differences from semver

@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 /// Represents the three forms that appear in ebuild `*DEPEND` variables
 /// (PMS 8.2): bare atoms, USE-conditional groups, and `|| ()` any-of groups.
 ///
-/// See [PMS 8.2](https://projects.gentoo.org/pms/latest/pms.html#x1-790008.2).
+/// See [PMS 8.2](https://projects.gentoo.org/pms/latest/pms.html#dependency-specification-format).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepEntry {
     /// A single dependency atom.
