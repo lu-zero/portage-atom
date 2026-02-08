@@ -30,6 +30,9 @@ pub enum Error {
 
     #[error("invalid operator: {0}")]
     InvalidOperator(String),
+
+    #[error("invalid dep string: {0}")]
+    InvalidDepString(String),
 }
 
 /// Result type for portage-atom operations

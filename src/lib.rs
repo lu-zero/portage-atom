@@ -37,6 +37,7 @@
 mod cpn;
 mod cpv;
 mod dep;
+mod dep_entry;
 mod error;
 mod slot;
 mod use_dep;
@@ -46,6 +47,7 @@ mod version;
 pub use cpn::Cpn;
 pub use cpv::Cpv;
 pub use dep::{Blocker, Dep};
+pub use dep_entry::DepEntry;
 pub use error::{Error, Result};
 pub use slot::{Slot, SlotDep, SlotOperator};
 pub use use_dep::{UseDefault, UseDep, UseDepKind};
