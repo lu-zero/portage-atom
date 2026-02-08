@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 /// When a package does not define a particular USE flag in its IUSE, the
 /// default annotation specifies what value the package manager should assume.
 ///
-/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#x1-850008.3.4).
+/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#style-and-style-use-dependencies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UseDefault {
     /// `(+)` — assume the flag is enabled if not defined by the package.
@@ -33,7 +33,7 @@ impl fmt::Display for UseDefault {
 
 /// The kind of constraint a USE dependency expresses
 ///
-/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#x1-850008.3.4).
+/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#style-and-style-use-dependencies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UseDepKind {
     /// `[flag]` — the dependency's flag must be enabled.
@@ -73,7 +73,7 @@ impl fmt::Display for UseDepKind {
 /// Each `UseDep` constrains one flag on the dependency package, optionally
 /// relative to the parent package's flag state.
 ///
-/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#x1-850008.3.4).
+/// See [PMS 8.3.4](https://projects.gentoo.org/pms/latest/pms.html#style-and-style-use-dependencies).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseDep {
     /// The USE flag name (e.g. `ssl`, `debug`, `python_targets_python3_12`).
