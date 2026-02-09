@@ -170,10 +170,9 @@ cargo run --example parse_atoms
 
 ## Related Projects
 
-- [pkgcraft](https://github.com/pkgcraft/pkgcraft) - Full-featured Gentoo package manager library
-- [pkgcraft-atom](https://github.com/pkgcraft/pkgcraft/tree/main/crates/pkgcraft-atom) - Original atom parsing library
 - [PMS](https://projects.gentoo.org/pms/) - Package Manager Specification
 - [Portage](https://wiki.gentoo.org/wiki/Portage) - Reference Gentoo package manager
+- [pkgcraft](https://crates.io/crates/pkgcraft) - Full-featured Gentoo package manager library
 
 ## License
 
