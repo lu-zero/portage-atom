@@ -381,15 +381,15 @@ impl Version {
             }
         }
 
-        // If self has a letter, other must match it exactly
+        // If the glob constraint specifies a letter, the candidate must match
+        // it exactly.  If the constraint has no letter, the candidate's letter
+        // (if any) is irrelevant — it falls under "any further components"
+        // per PMS 8.3.1.
         if let Some(self_letter) = self.letter {
             let other_letter = other.letter.unwrap_or('\0');
             if self_letter != other_letter {
                 return self_letter.cmp(&other_letter);
             }
-        } else if other.letter.is_some() {
-            // Self has no letter but other does - self is less specific
-            return Ordering::Less;
         }
 
         // PMS: glob matching succeeds if prefix matches
