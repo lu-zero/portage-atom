@@ -110,7 +110,7 @@ pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>
         parse_category(),
         '/',
         cut_err(take_while(1.., |c: char| {
-            c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.'
+            c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.' || c == '*'
         })),
     )
         .verify_map(|(category, _, pkg_ver): (String, char, &str)| {

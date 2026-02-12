@@ -191,6 +191,9 @@ fn parse_paren_group(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 mod tests {
     use super::*;
     use crate::dep::Blocker;
+    use crate::use_dep::{UseDefault, UseDepKind};
+    use crate::version::{Operator, Revision, Version};
+    use std::cmp::Ordering;
 
     #[test]
     fn empty_string() {
@@ -469,6 +472,233 @@ mod tests {
                 assert_eq!(dep.repo, Some("gentoo".to_string()));
             }
             _ => panic!("expected Atom"),
+        }
+    }
+
+    // Issue 1: Empty USE dep brackets []
+    #[test]
+    fn test_atoms_with_empty_use_deps() {
+        let entries = DepEntry::parse("dev-libs/libbsd[]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "libbsd");
+                assert!(dep.use_deps.as_ref().unwrap().is_empty());
+            }
+            _ => panic!("expected Atom"),
+        }
+
+        let entries = DepEntry::parse(">=dev-libs/libatomic_ops-7.4[]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "libatomic_ops");
+                assert!(dep.version.is_some());
+                assert!(dep.use_deps.as_ref().unwrap().is_empty());
+            }
+            _ => panic!("expected Atom"),
+        }
+    }
+
+    // Issue 2: USE dep defaults (+) and (-)
+    #[test]
+    fn test_atoms_with_use_dep_defaults() {
+        let entries = DepEntry::parse("sys-libs/ncurses:=[unicode(+)?]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "ncurses");
+                let use_deps = dep.use_deps.as_ref().unwrap();
+                assert_eq!(use_deps.len(), 1);
+                assert_eq!(use_deps[0].flag, "unicode");
+                assert_eq!(use_deps[0].kind, UseDepKind::Conditional);
+                assert_eq!(use_deps[0].default, Some(UseDefault::Enabled));
+            }
+            _ => panic!("expected Atom"),
+        }
+
+        let entries = DepEntry::parse("dev-libs/libxml2[icu(+)]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "libxml2");
+                let use_deps = dep.use_deps.as_ref().unwrap();
+                assert_eq!(use_deps.len(), 1);
+                assert_eq!(use_deps[0].flag, "icu");
+                assert_eq!(use_deps[0].kind, UseDepKind::Enabled);
+                assert_eq!(use_deps[0].default, Some(UseDefault::Enabled));
+            }
+            _ => panic!("expected Atom"),
+        }
+
+        let entries = DepEntry::parse("sys-libs/readline:=[unicode(-)]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "readline");
+                let use_deps = dep.use_deps.as_ref().unwrap();
+                assert_eq!(use_deps.len(), 1);
+                assert_eq!(use_deps[0].flag, "unicode");
+                assert_eq!(use_deps[0].kind, UseDepKind::Enabled);
+                assert_eq!(use_deps[0].default, Some(UseDefault::Disabled));
+            }
+            _ => panic!("expected Atom"),
+        }
+    }
+
+    // Issue 3: = version prefix with glob * suffix
+    #[test]
+    fn test_atoms_with_glob_version() {
+        let entries = DepEntry::parse("=dev-util/nvidia-cuda-toolkit-11*").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "nvidia-cuda-toolkit");
+                assert!(dep.version.is_some());
+                let version = dep.version.as_ref().unwrap();
+                assert_eq!(version.op, Some(Operator::Equal));
+                assert!(version.glob); // PMS: * is part of version, not operator
+            }
+            _ => panic!("expected Atom"),
+        }
+
+        let entries = DepEntry::parse("=sys-devel/gcc-13*").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "gcc");
+                assert!(dep.version.is_some());
+                let version = dep.version.as_ref().unwrap();
+                assert_eq!(version.op, Some(Operator::Equal));
+                assert!(version.glob); // PMS: * is part of version, not operator
+            }
+            _ => panic!("expected Atom"),
+        }
+    }
+
+    // Test PMS glob version matching behavior
+    #[test]
+    fn test_glob_version_matching() {
+        // PMS: =1.2* should match 1.2.3, 1.2.4, etc.
+        let v1_2_star = Version {
+            op: None,
+            numbers: vec![1, 2],
+            letter: None,
+            suffixes: vec![],
+            revision: Revision(0),
+            glob: true,
+        };
+
+        let v1_2_3 = Version {
+            op: None,
+            numbers: vec![1, 2, 3],
+            letter: None,
+            suffixes: vec![],
+            revision: Revision(0),
+            glob: false,
+        };
+
+        let v1_2_4 = Version {
+            op: None,
+            numbers: vec![1, 2, 4],
+            letter: None,
+            suffixes: vec![],
+            revision: Revision(0),
+            glob: false,
+        };
+
+        let v1_3 = Version {
+            op: None,
+            numbers: vec![1, 3],
+            letter: None,
+            suffixes: vec![],
+            revision: Revision(0),
+            glob: false,
+        };
+
+        // PMS glob matching: 1.2* should match 1.2.3 and 1.2.4
+        assert_eq!(v1_2_star.cmp(&v1_2_3), Ordering::Equal);
+        assert_eq!(v1_2_star.cmp(&v1_2_4), Ordering::Equal);
+
+        // But should not match 1.3*
+        assert_ne!(v1_2_star.cmp(&v1_3), Ordering::Equal);
+    }
+
+    // Issue 4: Trailing comma in USE dep list
+    #[test]
+    fn test_atoms_with_trailing_comma_in_use_deps() {
+        let entries =
+            DepEntry::parse(">=app-accessibility/at-spi2-core-2.46.0[introspection?,]").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::Atom(dep) => {
+                assert_eq!(dep.package(), "at-spi2-core");
+                assert!(dep.version.is_some());
+                let use_deps = dep.use_deps.as_ref().unwrap();
+                assert_eq!(use_deps.len(), 1);
+                assert_eq!(use_deps[0].flag, "introspection");
+                assert_eq!(use_deps[0].kind, UseDepKind::Conditional);
+            }
+            _ => panic!("expected Atom"),
+        }
+    }
+
+    // Issue 5: USE-conditional dep groups with whitespace handling
+    #[test]
+    fn test_use_conditional_with_whitespace() {
+        let entries =
+            DepEntry::parse("python_single_target_python3_11? ( dev-lang/python )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::UseConditional {
+                flag,
+                negate,
+                children,
+            } => {
+                assert_eq!(flag, "python_single_target_python3_11");
+                assert!(!negate);
+                assert_eq!(children.len(), 1);
+            }
+            _ => panic!("expected UseConditional"),
+        }
+
+        let entries = DepEntry::parse("test? ( dev-libs/check )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::UseConditional {
+                flag,
+                negate,
+                children,
+            } => {
+                assert_eq!(flag, "test");
+                assert!(!negate);
+                assert_eq!(children.len(), 1);
+            }
+            _ => panic!("expected UseConditional"),
+        }
+
+        let entries = DepEntry::parse("|| ( dev-libs/openssl dev-libs/libressl )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::AnyOf(children) => {
+                assert_eq!(children.len(), 2);
+            }
+            _ => panic!("expected AnyOf"),
+        }
+
+        let entries = DepEntry::parse("X? ( x11-libs/libX11 )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::UseConditional {
+                flag,
+                negate,
+                children,
+            } => {
+                assert_eq!(flag, "X");
+                assert!(!negate);
+                assert_eq!(children.len(), 1);
+            }
+            _ => panic!("expected UseConditional"),
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use winnow::combinator::{alt, cut_err, delimited, opt, preceded, separated};
+use winnow::combinator::{alt, cut_err, delimited, opt, preceded, separated, terminated};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
 use winnow::token::take_while;
@@ -120,14 +120,15 @@ impl fmt::Display for UseDep {
 
         write!(f, "{}", self.flag)?;
 
+        // PMS 8.3.4: default immediately follows the flag name, before ?/=
+        if let Some(default) = self.default {
+            write!(f, "{}", default)?;
+        }
+
         match self.kind {
             UseDepKind::Conditional | UseDepKind::ConditionalInverse => write!(f, "?")?,
             UseDepKind::Equal | UseDepKind::EqualInverse => write!(f, "=")?,
             _ => {}
-        }
-
-        if let Some(default) = self.default {
-            write!(f, "{}", default)?;
         }
 
         Ok(())
@@ -178,10 +179,10 @@ pub(crate) fn parse_use_dep_item<'s>() -> impl Parser<&'s str, UseDep, ErrMode<C
         // !flag? - inverse conditional
         (
             preceded('!', parse_use_flag()),
-            '?',
             opt(parse_use_default()),
+            '?',
         )
-            .map(|(flag, _, default)| UseDep {
+            .map(|(flag, default, _)| UseDep {
                 flag,
                 kind: UseDepKind::ConditionalInverse,
                 default,
@@ -189,28 +190,28 @@ pub(crate) fn parse_use_dep_item<'s>() -> impl Parser<&'s str, UseDep, ErrMode<C
         // !flag= - inverse equal
         (
             preceded('!', parse_use_flag()),
-            '=',
             opt(parse_use_default()),
+            '=',
         )
-            .map(|(flag, _, default)| UseDep {
+            .map(|(flag, default, _)| UseDep {
                 flag,
                 kind: UseDepKind::EqualInverse,
                 default,
             }),
         // -flag - disabled
-        preceded('-', parse_use_flag()).map(|flag| UseDep {
+        (preceded('-', parse_use_flag()), opt(parse_use_default())).map(|(flag, default)| UseDep {
             flag,
             kind: UseDepKind::Disabled,
-            default: None,
+            default,
         }),
         // flag? - conditional
-        (parse_use_flag(), '?', opt(parse_use_default())).map(|(flag, _, default)| UseDep {
+        (parse_use_flag(), opt(parse_use_default()), '?').map(|(flag, default, _)| UseDep {
             flag,
             kind: UseDepKind::Conditional,
             default,
         }),
         // flag= - equal
-        (parse_use_flag(), '=', opt(parse_use_default())).map(|(flag, _, default)| UseDep {
+        (parse_use_flag(), opt(parse_use_default()), '=').map(|(flag, default, _)| UseDep {
             flag,
             kind: UseDepKind::Equal,
             default,
@@ -228,7 +229,10 @@ pub(crate) fn parse_use_dep_item<'s>() -> impl Parser<&'s str, UseDep, ErrMode<C
 pub(crate) fn parse_use_deps<'s>() -> impl Parser<&'s str, Vec<UseDep>, ErrMode<ContextError>> {
     delimited(
         '[',
-        cut_err(separated(1.., parse_use_dep_item(), ',')),
+        cut_err(terminated(
+            separated(0.., parse_use_dep_item(), ','),
+            opt(','),
+        )),
         cut_err(']'),
     )
     .context(StrContext::Label("use deps"))
@@ -280,5 +284,43 @@ mod tests {
         assert_eq!(deps[1].kind, UseDepKind::Disabled);
         assert_eq!(deps[2].flag, "python");
         assert_eq!(deps[2].kind, UseDepKind::Conditional);
+    }
+
+    // Issue 1: Empty USE dep brackets []
+    #[test]
+    fn test_empty_use_deps() {
+        let deps = parse_use_deps().parse("[]").unwrap();
+        assert!(deps.is_empty());
+    }
+
+    // Issue 2: USE dep defaults (+) and (-)
+    #[test]
+    fn test_use_dep_with_defaults() {
+        let dep = UseDep::parse("unicode(+)").unwrap();
+        assert_eq!(dep.flag, "unicode");
+        assert_eq!(dep.kind, UseDepKind::Enabled);
+        assert_eq!(dep.default, Some(UseDefault::Enabled));
+        assert_eq!(dep.to_string(), "unicode(+)");
+
+        let dep = UseDep::parse("unicode(-)").unwrap();
+        assert_eq!(dep.flag, "unicode");
+        assert_eq!(dep.kind, UseDepKind::Enabled);
+        assert_eq!(dep.default, Some(UseDefault::Disabled));
+        assert_eq!(dep.to_string(), "unicode(-)");
+
+        let dep = UseDep::parse("icu(+)").unwrap();
+        assert_eq!(dep.flag, "icu");
+        assert_eq!(dep.kind, UseDepKind::Enabled);
+        assert_eq!(dep.default, Some(UseDefault::Enabled));
+        assert_eq!(dep.to_string(), "icu(+)");
+    }
+
+    // Issue 4: Trailing comma in USE dep list
+    #[test]
+    fn test_use_deps_with_trailing_comma() {
+        let deps = parse_use_deps().parse("[introspection?,]").unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].flag, "introspection");
+        assert_eq!(deps[0].kind, UseDepKind::Conditional);
     }
 }

@@ -164,10 +164,9 @@ pub enum Operator {
     /// `<=` — less than or equal to the specified version.
     LessOrEqual,
     /// `=` — exactly the specified version (including revision).
+    /// When used with a version ending in `*`, performs prefix matching
+    /// per PMS 8.3.1 (e.g., `=pkg-1.2*` matches `1.2.3`, `1.2.4`, etc.).
     Equal,
-    /// `=*` — glob match: any version whose string representation starts
-    /// with the specified prefix (e.g. `=dev-lang/rust-1.75*`).
-    EqualGlob,
     /// `~` — matches the same base version, ignoring the revision
     /// (e.g. `~dev-lang/rust-1.75.0` matches `-r0`, `-r1`, etc.).
     Approximate,
@@ -183,7 +182,6 @@ impl fmt::Display for Operator {
             Operator::Less => write!(f, "<"),
             Operator::LessOrEqual => write!(f, "<="),
             Operator::Equal => write!(f, "="),
-            Operator::EqualGlob => write!(f, "=*"),
             Operator::Approximate => write!(f, "~"),
             Operator::GreaterOrEqual => write!(f, ">="),
             Operator::Greater => write!(f, ">"),
@@ -215,6 +213,8 @@ impl fmt::Display for Operator {
 /// - **Revision** — a dedicated `-rN` component for distribution-level changes.
 /// - **Ordering** — `_p` sorts *above* the base version; semver pre-releases
 ///   always sort below.
+/// - **Glob suffix** — PMS allows `*` as wildcard for version components
+///   (e.g., `1.2*` matches `1.2.3`, `1.2.4`, etc.) when used with `=` operator.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Version {
     /// Version operator (set only inside a [`Dep`](crate::Dep)).
@@ -227,6 +227,9 @@ pub struct Version {
     pub suffixes: Vec<Suffix>,
     /// Package revision; defaults to `0` (omitted from display).
     pub revision: Revision,
+    /// PMS glob suffix (`*`) for wildcard matching when used with `=` operator.
+    /// When present, only the specified number of version components are used for comparison.
+    pub glob: bool,
 }
 
 impl Version {
@@ -245,6 +248,7 @@ impl Version {
             letter: self.letter,
             suffixes: self.suffixes.clone(),
             revision: Revision::default(),
+            glob: false,
         }
     }
 
@@ -256,6 +260,7 @@ impl Version {
             letter: self.letter,
             suffixes: Vec::new(),
             revision: Revision::default(),
+            glob: false,
         }
     }
 }
@@ -283,6 +288,10 @@ impl fmt::Display for Version {
 
         write!(f, "{}", self.revision)?;
 
+        if self.glob {
+            write!(f, "*")?;
+        }
+
         Ok(())
     }
 }
@@ -296,6 +305,14 @@ impl PartialOrd for Version {
 
 impl Ord for Version {
     fn cmp(&self, other: &Self) -> Ordering {
+        // PMS 8.3.1: glob matching — only compare the specified components
+        if self.glob {
+            return self.glob_cmp(other);
+        }
+        if other.glob {
+            return other.glob_cmp(self).reverse();
+        }
+
         // Compare numeric components
         let max_len = self.numbers.len().max(other.numbers.len());
         for i in 0..max_len {
@@ -324,7 +341,6 @@ impl Ord for Version {
                     other => return other,
                 },
                 (Some(s), None) => {
-                    // PMS: Suffixes like _p add to version
                     return if s.kind == SuffixKind::P {
                         Ordering::Greater
                     } else {
@@ -344,6 +360,45 @@ impl Ord for Version {
 
         // Compare revisions
         self.revision.cmp(&other.revision)
+    }
+}
+
+impl Version {
+    /// PMS glob comparison for versions ending with `*`
+    /// Per PMS 8.3.1: "if the version specified has an asterisk immediately following it,
+    /// then only the given number of version components is used for comparison"
+    fn glob_cmp(&self, other: &Version) -> Ordering {
+        // Compare only the number of components specified in self (before *)
+        let self_components = self.numbers.len();
+
+        // Compare numeric components up to self's component count
+        for i in 0..self_components {
+            let a = self.numbers.get(i).copied().unwrap_or(0);
+            let b = other.numbers.get(i).copied().unwrap_or(0);
+            match a.cmp(&b) {
+                Ordering::Equal => continue,
+                other => return other,
+            }
+        }
+
+        // If self has a letter, other must match it exactly
+        if let Some(self_letter) = self.letter {
+            let other_letter = other.letter.unwrap_or('\0');
+            if self_letter != other_letter {
+                return self_letter.cmp(&other_letter);
+            }
+        } else if other.letter.is_some() {
+            // Self has no letter but other does - self is less specific
+            return Ordering::Less;
+        }
+
+        // PMS: glob matching succeeds if prefix matches
+        // Only fail if other has fewer components than self
+        if other.numbers.len() < self_components {
+            Ordering::Greater // other is "less than" the glob pattern
+        } else {
+            Ordering::Equal // prefix matches, glob succeeds
+        }
     }
 }
 
@@ -382,13 +437,15 @@ pub(crate) fn parse_version<'s>() -> impl Parser<&'s str, Version, ErrMode<Conte
         opt(parse_letter()),
         repeat(0.., parse_suffix()),
         opt(parse_revision()),
+        opt('*'), // Handle PMS glob suffix for version wildcard matching
     )
-        .map(|(numbers, letter, suffixes, revision)| Version {
+        .map(|(numbers, letter, suffixes, revision, has_glob)| Version {
             op: None,
             numbers,
             letter,
             suffixes,
             revision: revision.unwrap_or_default(),
+            glob: has_glob.is_some(),
         })
         .context(StrContext::Label("version"))
 }
@@ -400,7 +457,6 @@ pub(crate) fn parse_operator<'s>() -> impl Parser<&'s str, Operator, ErrMode<Con
         ">=".value(Operator::GreaterOrEqual),
         ">".value(Operator::Greater),
         "~".value(Operator::Approximate),
-        "=*".value(Operator::EqualGlob),
         "=".value(Operator::Equal),
     ))
     .context(StrContext::Label("operator"))
@@ -463,5 +519,15 @@ mod tests {
 
         let v4 = Version::parse("1.2.3_rc1").unwrap();
         assert!(v4 < v1);
+    }
+
+    // Issue 3: = version prefix with glob * suffix
+    // Note: PMS specifies that * is part of the version, not the operator
+    // So there is no separate =* operator - just = operator with * in version
+    #[test]
+    fn test_version_with_glob_suffix() {
+        let version = Version::parse("1.2.3*").unwrap();
+        assert!(version.glob);
+        assert_eq!(version.numbers, vec![1, 2, 3]);
     }
 }
