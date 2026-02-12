@@ -23,6 +23,16 @@ fn print_entries(entries: &[DepEntry], indent: usize) {
                 print_entries(children, indent + 1);
                 println!("{pad})");
             }
+            DepEntry::ExactlyOneOf(children) => {
+                println!("{pad}^^ (");
+                print_entries(children, indent + 1);
+                println!("{pad})");
+            }
+            DepEntry::AtMostOneOf(children) => {
+                println!("{pad}?? (");
+                print_entries(children, indent + 1);
+                println!("{pad})");
+            }
         }
     }
 }

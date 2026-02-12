@@ -30,13 +30,18 @@ pub enum DepEntry {
     },
     /// `|| ( a b c )` — any one of the children satisfies the dependency.
     AnyOf(Vec<DepEntry>),
+    /// `^^ ( a b c )` — exactly one child must be matched.
+    ExactlyOneOf(Vec<DepEntry>),
+    /// `?? ( a b c )` — at most one child must be matched.
+    AtMostOneOf(Vec<DepEntry>),
 }
 
 impl DepEntry {
     /// Parse a full dependency string into a list of entries.
     ///
     /// Accepts the format used in ebuild `*DEPEND` variables: whitespace-separated
-    /// atoms, `|| ( ... )` any-of groups, `use? ( ... )` conditional groups,
+    /// atoms, `|| ( ... )` any-of groups, `^^ ( ... )` exactly-one-of groups,
+    /// `?? ( ... )` at-most-one-of groups, `use? ( ... )` conditional groups,
     /// and bare `( ... )` all-of groups (flattened into the parent list).
     ///
     /// # Examples
@@ -85,6 +90,26 @@ impl fmt::Display for DepEntry {
                 }
                 write!(f, " )")
             }
+            DepEntry::ExactlyOneOf(entries) => {
+                write!(f, "^^ ( ")?;
+                for (i, entry) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{entry}")?;
+                }
+                write!(f, " )")
+            }
+            DepEntry::AtMostOneOf(entries) => {
+                write!(f, "?? ( ")?;
+                for (i, entry) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{entry}")?;
+                }
+                write!(f, " )")
+            }
         }
     }
 }
@@ -118,12 +143,16 @@ fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 ///
 /// Uses `dispatch!(peek(any); ...)` to route on the first character:
 /// - `|` → any-of group (`|| ( ... )`)
+/// - `^` → exactly-one-of group (`^^ ( ... )`)
+/// - `?` → at-most-one-of group (`?? ( ... )`)
 /// - `(` → bare paren group (flattened)
 /// - `>`, `<`, `~`, `=` → versioned atom (skip USE-conditional attempt)
 /// - anything else → try USE conditional first, fall back to atom
 fn parse_dep_entry(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
     dispatch! {peek(any);
         '|' => parse_any_of.map(|e| vec![e]),
+        '^' => parse_exactly_one_of.map(|e| vec![e]),
+        '?' => parse_at_most_one_of.map(|e| vec![e]),
         '(' => parse_paren_group,
         '>' | '<' | '~' | '=' => parse_dep()
             .context(StrContext::Label("dependency atom"))
@@ -148,6 +177,32 @@ fn parse_any_of(input: &mut &str) -> ModalResult<DepEntry> {
     cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
         .context(StrContext::Label("'||' group"))
         .map(DepEntry::AnyOf)
+        .parse_next(input)
+}
+
+/// Parse `^^ ( entry+ )`.
+///
+/// After consuming `^^`, uses `cut_err` to commit — a missing `(` or `)`
+/// becomes a hard error instead of backtracking into `alt`.
+fn parse_exactly_one_of(input: &mut &str) -> ModalResult<DepEntry> {
+    "^^".parse_next(input)?;
+    multispace0.parse_next(input)?;
+    cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
+        .context(StrContext::Label("'^^' group"))
+        .map(DepEntry::ExactlyOneOf)
+        .parse_next(input)
+}
+
+/// Parse `?? ( entry+ )`.
+///
+/// After consuming `??`, uses `cut_err` to commit — a missing `(` or `)`
+/// becomes a hard error instead of backtracking into `alt`.
+fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
+    "??".parse_next(input)?;
+    multispace0.parse_next(input)?;
+    cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
+        .context(StrContext::Label("'??' group"))
+        .map(DepEntry::AtMostOneOf)
         .parse_next(input)
 }
 
@@ -473,6 +528,92 @@ mod tests {
             }
             _ => panic!("expected Atom"),
         }
+    }
+
+    #[test]
+    fn exactly_one_of_group() {
+        let entries = DepEntry::parse("^^ ( dev-libs/bar dev-libs/baz )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::ExactlyOneOf(children) => {
+                assert_eq!(children.len(), 2);
+                assert!(matches!(&children[0], DepEntry::Atom(dep) if dep.package() == "bar"));
+                assert!(matches!(&children[1], DepEntry::Atom(dep) if dep.package() == "baz"));
+            }
+            _ => panic!("expected ExactlyOneOf"),
+        }
+    }
+
+    #[test]
+    fn at_most_one_of_group() {
+        let entries = DepEntry::parse("?? ( dev-libs/bar dev-libs/baz )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::AtMostOneOf(children) => {
+                assert_eq!(children.len(), 2);
+                assert!(matches!(&children[0], DepEntry::Atom(dep) if dep.package() == "bar"));
+                assert!(matches!(&children[1], DepEntry::Atom(dep) if dep.package() == "baz"));
+            }
+            _ => panic!("expected AtMostOneOf"),
+        }
+    }
+
+    #[test]
+    fn display_round_trip_exactly_one_of() {
+        let input = "^^ ( dev-libs/bar dev-libs/baz )";
+        let entries = DepEntry::parse(input).unwrap();
+        let displayed: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+        let rejoined = displayed.join(" ");
+        let reparsed = DepEntry::parse(&rejoined).unwrap();
+        assert_eq!(entries, reparsed);
+    }
+
+    #[test]
+    fn display_round_trip_at_most_one_of() {
+        let input = "?? ( dev-libs/bar dev-libs/baz )";
+        let entries = DepEntry::parse(input).unwrap();
+        let displayed: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+        let rejoined = displayed.join(" ");
+        let reparsed = DepEntry::parse(&rejoined).unwrap();
+        assert_eq!(entries, reparsed);
+    }
+
+    #[test]
+    fn nested_use_in_exactly_one_of() {
+        let entries = DepEntry::parse("^^ ( ssl? ( dev-libs/openssl ) dev-libs/gnutls )").unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::ExactlyOneOf(children) => {
+                assert_eq!(children.len(), 2);
+                assert!(matches!(
+                    &children[0],
+                    DepEntry::UseConditional { flag, .. } if flag == "ssl"
+                ));
+                assert!(matches!(&children[1], DepEntry::Atom(dep) if dep.package() == "gnutls"));
+            }
+            _ => panic!("expected ExactlyOneOf"),
+        }
+    }
+
+    #[test]
+    fn mixed_with_exactly_one_of() {
+        let input =
+            "dev-lang/rust ^^ ( dev-libs/openssl dev-libs/libressl ) ssl? ( net-misc/curl )";
+        let entries = DepEntry::parse(input).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert!(matches!(&entries[0], DepEntry::Atom(_)));
+        assert!(matches!(&entries[1], DepEntry::ExactlyOneOf(_)));
+        assert!(matches!(&entries[2], DepEntry::UseConditional { .. }));
+    }
+
+    #[test]
+    fn error_exactly_one_of_missing_paren() {
+        assert!(DepEntry::parse("^^ dev-libs/a").is_err());
+    }
+
+    #[test]
+    fn error_at_most_one_of_missing_paren() {
+        assert!(DepEntry::parse("?? dev-libs/a").is_err());
     }
 
     // Issue 1: Empty USE dep brackets []
