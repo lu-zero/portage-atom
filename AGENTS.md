@@ -24,7 +24,7 @@ justified. Prefer standard library solutions where reasonable.
 
 ## PMS Compliance
 
-This library implements the [Package Manager Specification (PMS)](https://projects.gentoo.org/pms/latest/pms.html).
+This library implements the [Package Manager Specification (PMS)](https://projects.gentoo.org/pms/9/pms.html).
 All public types must reference the relevant PMS section in their doc comments
 (e.g. `See [PMS 3.2](...)`).
 

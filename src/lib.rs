@@ -3,7 +3,7 @@
 //! This crate provides types and parsing for Gentoo/Portage package atoms
 //! according to the [Package Manager Specification (PMS)][PMS].
 //!
-//! [PMS]: https://projects.gentoo.org/pms/latest/pms.html
+//! [PMS]: https://projects.gentoo.org/pms/9/pms.html
 //!
 //! # Examples
 //!

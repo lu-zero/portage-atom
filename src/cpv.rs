@@ -17,9 +17,9 @@ use crate::version::{parse_version, Version};
 /// The version is separated from the package name at the last hyphen
 /// followed by a digit.
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/latest/pms.html#version-specifications)
+/// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications)
 /// for the version syntax and
-/// [PMS 3.3](https://projects.gentoo.org/pms/latest/pms.html#version-comparison)
+/// [PMS 3.3](https://projects.gentoo.org/pms/9/pms.html#version-comparison)
 /// for the version comparison algorithm.
 #[derive(Debug, Clone)]
 pub struct Cpv {

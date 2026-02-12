@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 
 /// Slot operator for sub-slot rebuilds
 ///
-/// See [PMS 8.3.3](https://projects.gentoo.org/pms/latest/pms.html#slot-dependencies).
+/// See [PMS 8.3.3](https://projects.gentoo.org/pms/9/pms.html#slot-dependencies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SlotOperator {
     /// `:=` — the dependent package must be rebuilt when the dependency's
@@ -36,7 +36,7 @@ impl fmt::Display for SlotOperator {
 /// track ABI compatibility; a sub-slot change signals that reverse
 /// dependencies using `:=` must be rebuilt.
 ///
-/// See [PMS 7.2](https://projects.gentoo.org/pms/latest/pms.html#mandatory-ebuilddefined-variables).
+/// See [PMS 7.2](https://projects.gentoo.org/pms/9/pms.html#mandatory-ebuilddefined-variables).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Slot {
     /// The slot name (e.g. `0`, `3.12`, `stable`).
@@ -76,7 +76,7 @@ impl fmt::Display for Slot {
 /// Represents the slot constraint portion of a dependency atom
 /// (everything after the `:`), e.g. `:0`, `:0/2.1`, `:0=`, `:=`, `:*`.
 ///
-/// See [PMS 8.3.3](https://projects.gentoo.org/pms/latest/pms.html#slot-dependencies).
+/// See [PMS 8.3.3](https://projects.gentoo.org/pms/9/pms.html#slot-dependencies).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SlotDep {
     /// A named slot with optional sub-slot and optional operator,

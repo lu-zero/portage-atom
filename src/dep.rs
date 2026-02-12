@@ -16,7 +16,7 @@ use crate::version::Version;
 /// Package dependency blocker type
 ///
 /// Blockers prevent conflicting packages from being installed simultaneously.
-/// See [PMS 8.3.2](https://projects.gentoo.org/pms/latest/pms.html#block-operator).
+/// See [PMS 8.3.2](https://projects.gentoo.org/pms/9/pms.html#block-operator).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Blocker {
     /// `!` — weak blocker: the blocked package may be temporarily installed
@@ -40,7 +40,7 @@ impl fmt::Display for Blocker {
 ///
 /// Represents full dependency atoms like `>=dev-lang/rust-1.75.0:0[ssl]::gentoo`.
 ///
-/// See [PMS 8.3](https://projects.gentoo.org/pms/latest/pms.html#package-dependency-specifications)
+/// See [PMS 8.3](https://projects.gentoo.org/pms/9/pms.html#package-dependency-specifications)
 /// for the dependency specification syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dep {

@@ -7,7 +7,7 @@
 [![dependency status](https://deps.rs/repo/github/lu-zero/portage-atom/status.svg)](https://deps.rs/repo/github/lu-zero/portage-atom)
 [![docs.rs](https://docs.rs/portage-atom/badge.svg)](https://docs.rs/portage-atom)
 
-A Rust library for parsing Portage package atoms, based on the [Package Manager Specification (PMS)](https://projects.gentoo.org/pms/latest/pms.html).
+A Rust library for parsing Portage package atoms, based on the [Package Manager Specification (PMS) 9](https://projects.gentoo.org/pms/9/pms.html).
 
 > **Warning**: This codebase was largely AI-generated (slop-coded) and has not
 > yet been thoroughly audited. It may contain bugs, incomplete PMS coverage, or

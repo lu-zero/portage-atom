@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 ///
 /// Represents unversioned package atoms like `dev-lang/rust`.
 ///
-/// See [PMS 3.1](https://projects.gentoo.org/pms/latest/pms.html#restrictions-upon-names)
+/// See [PMS 3.1](https://projects.gentoo.org/pms/9/pms.html#restrictions-upon-names)
 /// for category and package naming rules.
 #[derive(Debug, Clone)]
 pub struct Cpn {
