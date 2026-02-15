@@ -4,7 +4,6 @@ use std::str::FromStr;
 use winnow::combinator::{alt, opt, preceded};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::take_while;
 
 use crate::error::{Error, Result};
 
@@ -128,14 +127,14 @@ impl FromStr for SlotDep {
 /// Parse slot name (alphanumeric, _, -, +, .)
 /// PMS 3.1.3: must not begin with hyphen, dot, or plus
 fn parse_slot_name<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
-    take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.'
-    })
-    .verify(|s: &str| {
-        let first_char = s.chars().next().unwrap();
-        !matches!(first_char, '-' | '.' | '+')
-    })
-    .map(|s: &str| s.to_string())
+    use crate::parsers::parse_ident_with_dot;
+
+    parse_ident_with_dot()
+        .verify(|s: &str| {
+            let first_char = s.chars().next().unwrap();
+            !matches!(first_char, '-' | '.' | '+')
+        })
+        .map(|s: &str| s.to_string())
 }
 
 /// Parse slot with optional subslot

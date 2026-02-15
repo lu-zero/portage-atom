@@ -39,6 +39,7 @@ mod cpv;
 mod dep;
 mod dep_entry;
 mod error;
+mod parsers;
 mod slot;
 mod use_dep;
 mod version;

@@ -4,10 +4,11 @@ use winnow::ascii::multispace0;
 use winnow::combinator::{alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::{any, take_while};
+use winnow::token::any;
 
 use crate::dep::{parse_dep, Dep};
 use crate::error::{Error, Result};
+use crate::parsers::parse_ident_base;
 
 /// Structured dependency tree entry.
 ///
@@ -212,11 +213,9 @@ fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
 /// commits so a missing `( ... )` is a hard error.
 fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
     let negate = opt('!').parse_next(input)?.is_some();
-    let flag: String = take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+'
-    })
-    .map(|s: &str| s.to_string())
-    .parse_next(input)?;
+    let flag: String = parse_ident_base()
+        .map(|s: &str| s.to_string())
+        .parse_next(input)?;
     '?'.parse_next(input)?;
     // After '?', committed to USE conditional
     multispace0.parse_next(input)?;
