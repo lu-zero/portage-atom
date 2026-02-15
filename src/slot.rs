@@ -126,9 +126,14 @@ impl FromStr for SlotDep {
 // Winnow parsers
 
 /// Parse slot name (alphanumeric, _, -, +, .)
+/// PMS 3.1.3: must not begin with hyphen, dot, or plus
 fn parse_slot_name<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
     take_while(1.., |c: char| {
         c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.'
+    })
+    .verify(|s: &str| {
+        let first_char = s.chars().next().unwrap();
+        !matches!(first_char, '-' | '.' | '+')
     })
     .map(|s: &str| s.to_string())
 }
@@ -213,5 +218,22 @@ mod tests {
             }
             _ => panic!("unexpected slot dep"),
         }
+    }
+
+    #[test]
+    fn test_slot_name_validation() {
+        // PMS 3.1.3: "A slot name may contain any of the characters [A-Za-z0-9+_.-].
+        // It must not begin with a hyphen, a dot or a plus sign."
+
+        // Valid slot names
+        assert!(SlotDep::parse("0").is_ok());
+        assert!(SlotDep::parse("3.12").is_ok());
+        assert!(SlotDep::parse("stable").is_ok());
+        assert!(SlotDep::parse("slot+name").is_ok());
+
+        // Invalid: starts with forbidden characters
+        assert!(SlotDep::parse("-slot").is_err());
+        assert!(SlotDep::parse(".slot").is_err());
+        assert!(SlotDep::parse("+slot").is_err());
     }
 }

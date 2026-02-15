@@ -240,6 +240,8 @@ pub(crate) fn parse_dep<'s>() -> impl Parser<&'s str, Dep, ErrMode<ContextError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::slot::SlotOperator;
+    use crate::version::{Operator, SuffixKind};
 
     #[test]
     fn test_dep_simple() {
@@ -302,6 +304,40 @@ mod tests {
         assert!(dep.version.is_some());
         assert!(dep.slot_dep.is_some());
         assert!(dep.use_deps.is_some());
+        assert_eq!(dep.repo, Some("gentoo".to_string()));
+    }
+
+    #[test]
+    fn test_dep_with_all_features() {
+        // Test a complex dependency using all PMS features
+        let dep_str = "!!>=dev-lang/rust-1.75.0_rc1:0/1.75=[ssl(-),-debug,python?]::gentoo";
+        let dep = Dep::parse(dep_str).unwrap();
+
+        assert_eq!(dep.blocker, Some(Blocker::Strong));
+        assert!(dep.version.is_some());
+        let version = dep.version.as_ref().unwrap();
+        assert_eq!(version.op, Some(Operator::GreaterOrEqual));
+        assert_eq!(version.numbers[0], 1);
+        assert_eq!(version.suffixes[0].kind, SuffixKind::Rc);
+
+        assert!(dep.slot_dep.is_some());
+        let slot_dep = dep.slot_dep.as_ref().unwrap();
+        match slot_dep {
+            SlotDep::Slot {
+                slot: Some(s),
+                op: Some(o),
+            } => {
+                assert_eq!(s.slot, "0");
+                assert_eq!(s.subslot, Some("1.75".to_string()));
+                assert_eq!(*o, SlotOperator::Equal);
+            }
+            _ => panic!("Unexpected slot dep format"),
+        }
+
+        assert!(dep.use_deps.is_some());
+        let use_deps = dep.use_deps.as_ref().unwrap();
+        assert_eq!(use_deps.len(), 3);
+
         assert_eq!(dep.repo, Some("gentoo".to_string()));
     }
 }

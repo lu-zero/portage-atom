@@ -530,4 +530,61 @@ mod tests {
         assert!(version.glob);
         assert_eq!(version.numbers, vec![1, 2, 3]);
     }
+
+    #[test]
+    fn test_version_glob_matching() {
+        // PMS 8.3.1: "if the version specified has an asterisk immediately following it,
+        // then only the given number of version components is used for comparison"
+
+        let glob_version = Version::parse("1.2.3*").unwrap();
+        assert!(glob_version.glob);
+
+        // Should match versions that start with 1.2.3
+        let v1 = Version::parse("1.2.3").unwrap();
+        let v2 = Version::parse("1.2.3.4").unwrap();
+        let v3 = Version::parse("1.2.3.4.5").unwrap();
+
+        // All should match the glob pattern
+        assert_eq!(glob_version.glob_cmp(&v1), std::cmp::Ordering::Equal);
+        assert_eq!(glob_version.glob_cmp(&v2), std::cmp::Ordering::Equal);
+        assert_eq!(glob_version.glob_cmp(&v3), std::cmp::Ordering::Equal);
+
+        // Should not match versions that don't start with 1.2.3
+        let v4 = Version::parse("1.2.4").unwrap();
+        assert_ne!(glob_version.glob_cmp(&v4), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_version_with_letter_glob() {
+        // Test glob matching with letter suffix
+        let glob_version = Version::parse("1.2a*").unwrap();
+        assert!(glob_version.glob);
+
+        let v1 = Version::parse("1.2a").unwrap();
+        let v2 = Version::parse("1.2a_beta1").unwrap();
+
+        // Should match
+        assert_eq!(glob_version.glob_cmp(&v1), std::cmp::Ordering::Equal);
+        assert_eq!(glob_version.glob_cmp(&v2), std::cmp::Ordering::Equal);
+
+        // Should not match different letter
+        let v3 = Version::parse("1.2b").unwrap();
+        assert_ne!(glob_version.glob_cmp(&v3), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_version_component_count() {
+        // PMS: "The package manager must neither impose fixed limits upon the number
+        // of version components, nor upon the length of any component."
+
+        // Test many components
+        let many_components = "1.2.3.4.5.6.7.8.9.10.11.12.13.14.15";
+        let version = Version::parse(many_components).unwrap();
+        assert_eq!(version.numbers.len(), 15);
+
+        // Test long component values
+        let long_component = "12345678901234567890"; // 20 digits
+        let version = Version::parse(long_component).unwrap();
+        assert_eq!(version.numbers[0], 12345678901234567890u64);
+    }
 }
