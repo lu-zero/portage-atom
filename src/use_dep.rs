@@ -158,10 +158,12 @@ impl FromStr for UseDep {
 // Winnow parsers
 
 /// Parse USE flag name
+/// PMS 3.1.4: must begin with alphanumeric character
 fn parse_use_flag<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
     take_while(1.., |c: char| {
         c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '@'
     })
+    .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
     .map(|s: &str| s.to_string())
 }
 
@@ -322,5 +324,23 @@ mod tests {
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].flag, "introspection");
         assert_eq!(deps[0].kind, UseDepKind::Conditional);
+    }
+
+    #[test]
+    fn test_use_flag_name_validation() {
+        // PMS 3.1.4: "A USE flag name may contain any of the characters [A-Za-z0-9+_@-].
+        // It must begin with an alphanumeric character."
+
+        // Valid flag names
+        assert!(UseDep::parse("ssl").is_ok());
+        assert!(UseDep::parse("python_targets_python3_12").is_ok());
+        assert!(UseDep::parse("unicode+").is_ok());
+        assert!(UseDep::parse("icu@").is_ok());
+        assert!(UseDep::parse("-flag").is_ok()); // -flag is valid: flag starts with 'f' (alphanumeric)
+
+        // Invalid: flag name itself starts with non-alphanumeric
+        assert!(UseDep::parse("@flag").is_err()); // @flag is invalid: flag starts with '@'
+        assert!(UseDep::parse("-\u{40}flag").is_err()); // -@flag is invalid: flag starts with '@'
+        assert!(UseDep::parse("-_flag").is_err()); // -_flag is invalid: flag starts with '_'
     }
 }
