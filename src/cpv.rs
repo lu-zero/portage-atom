@@ -5,10 +5,10 @@ use std::str::FromStr;
 use winnow::combinator::cut_err;
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::take_while;
 
 use crate::cpn::{parse_category, parse_package, Cpn};
 use crate::error::{Error, Result};
+use crate::parsers::parse_ident_with_dot_star;
 use crate::version::{parse_version, Version};
 
 /// Category/Package/Version (Cpv)
@@ -106,13 +106,7 @@ impl FromStr for Cpv {
 /// Package names can contain hyphens, so we need to find the version boundary
 /// Per PMS, version always starts after the LAST hyphen followed by a digit
 pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>> {
-    (
-        parse_category(),
-        '/',
-        cut_err(take_while(1.., |c: char| {
-            c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.' || c == '*'
-        })),
-    )
+    (parse_category(), '/', cut_err(parse_ident_with_dot_star()))
         .verify_map(|(category, _, pkg_ver): (String, char, &str)| {
             // Find the last -<digit> boundary to split package from version
             let bytes = pkg_ver.as_bytes();

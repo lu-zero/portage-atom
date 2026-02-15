@@ -5,7 +5,6 @@ use std::str::FromStr;
 use winnow::combinator::cut_err;
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::take_while;
 
 use crate::error::{Error, Result};
 
@@ -92,30 +91,30 @@ impl FromStr for Cpn {
 /// Parse category name
 /// PMS 3.1.1: category name may contain [A-Za-z0-9+_.-], must not begin with hyphen or plus
 pub(crate) fn parse_category<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
-    take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '.'
-    })
-    .verify(|s: &str| {
-        let first_char = s.chars().next().unwrap();
-        !matches!(first_char, '-' | '.' | '+')
-    })
-    .map(|s: &str| s.to_string())
-    .context(StrContext::Label("category"))
+    use crate::parsers::parse_ident_with_dot;
+
+    parse_ident_with_dot()
+        .verify(|s: &str| {
+            let first_char = s.chars().next().unwrap();
+            !matches!(first_char, '-' | '.' | '+')
+        })
+        .map(|s: &str| s.to_string())
+        .context(StrContext::Label("category"))
 }
 
 /// Parse package name
 /// PMS: package name must start with letter/digit, contain alphanumeric + _ - +
 /// Must not end with hyphen followed by version-like string
 pub(crate) fn parse_package<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
-    take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+'
-    })
-    .verify(|s: &str| {
-        // Must start with alphanumeric
-        s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-    .map(|s: &str| s.to_string())
-    .context(StrContext::Label("package"))
+    use crate::parsers::parse_ident_base;
+
+    parse_ident_base()
+        .verify(|s: &str| {
+            // Must start with alphanumeric
+            s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        })
+        .map(|s: &str| s.to_string())
+        .context(StrContext::Label("package"))
 }
 
 /// Parse full Cpn (category/package)

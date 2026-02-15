@@ -4,7 +4,6 @@ use std::str::FromStr;
 use winnow::combinator::{alt, cut_err, delimited, opt, preceded, separated, terminated};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::take_while;
 
 use crate::error::{Error, Result};
 
@@ -160,11 +159,11 @@ impl FromStr for UseDep {
 /// Parse USE flag name
 /// PMS 3.1.4: must begin with alphanumeric character
 fn parse_use_flag<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
-    take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+' || c == '@'
-    })
-    .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
-    .map(|s: &str| s.to_string())
+    use crate::parsers::parse_ident_with_at;
+
+    parse_ident_with_at()
+        .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
+        .map(|s: &str| s.to_string())
 }
 
 /// Parse USE default

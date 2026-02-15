@@ -4,7 +4,6 @@ use std::str::FromStr;
 use winnow::combinator::{alt, cut_err, opt, preceded};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
-use winnow::token::take_while;
 
 use crate::cpn::{parse_cpn, Cpn};
 use crate::cpv::{parse_cpv, Cpv};
@@ -175,10 +174,9 @@ fn parse_blocker<'s>() -> impl Parser<&'s str, Blocker, ErrMode<ContextError>> {
 
 /// Parse repository name (alphanumeric, _, -, +)
 fn parse_repo<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
-    take_while(1.., |c: char| {
-        c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '+'
-    })
-    .map(|s: &str| s.to_string())
+    use crate::parsers::parse_ident_base;
+
+    parse_ident_base().map(|s: &str| s.to_string())
 }
 
 /// Parse full dependency atom
