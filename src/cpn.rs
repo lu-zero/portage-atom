@@ -105,13 +105,21 @@ pub(crate) fn parse_category<'s>() -> impl Parser<&'s str, String, ErrMode<Conte
 /// Parse package name
 /// PMS: package name must start with letter/digit, contain alphanumeric + _ - +
 /// Must not end with hyphen followed by version-like string
+///
+/// Note: In practice, Gentoo's tree contains packages whose names start with
+/// an underscore (e.g. `acct-user/_cron-failure`). We accept those even though
+/// PMS 3.1.2 technically requires an alphanumeric first character.
 pub(crate) fn parse_package<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_base;
 
     parse_ident_base()
         .verify(|s: &str| {
-            // Must start with alphanumeric
-            s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+            // Must start with alphanumeric or underscore.
+            // PMS 3.1.2 requires alphanumeric, but real-world Gentoo packages
+            // such as acct-user/_cron-failure begin with '_'.
+            s.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
         })
         .map(|s: &str| s.to_string())
         .context(StrContext::Label("package"))
@@ -152,6 +160,20 @@ mod tests {
         assert!(Cpn::parse("invalid").is_err());
         assert!(Cpn::parse("/package").is_err());
         assert!(Cpn::parse("category/").is_err());
+    }
+
+    #[test]
+    fn test_package_name_starting_with_underscore() {
+        // Real-world Gentoo packages such as acct-user/_cron-failure have
+        // names starting with '_'.  We accept them even though PMS 3.1.2
+        // requires an alphanumeric first character.
+        let cpn = Cpn::parse("acct-user/_cron-failure").unwrap();
+        assert_eq!(cpn.category, "acct-user");
+        assert_eq!(cpn.package, "_cron-failure");
+
+        let cpn = Cpn::parse("acct-group/_cron-failure").unwrap();
+        assert_eq!(cpn.category, "acct-group");
+        assert_eq!(cpn.package, "_cron-failure");
     }
 
     #[test]
