@@ -1,6 +1,6 @@
 use std::fmt;
 
-use winnow::ascii::multispace0;
+use winnow::ascii::{multispace0, multispace1};
 use winnow::combinator::{alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
@@ -174,7 +174,7 @@ fn parse_dep_entry(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 /// becomes a hard error instead of backtracking into `alt`.
 fn parse_any_of(input: &mut &str) -> ModalResult<DepEntry> {
     "||".parse_next(input)?;
-    multispace0.parse_next(input)?;
+    multispace1.parse_next(input)?;
     cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
         .context(StrContext::Label("'||' group"))
         .map(DepEntry::AnyOf)
@@ -187,7 +187,7 @@ fn parse_any_of(input: &mut &str) -> ModalResult<DepEntry> {
 /// becomes a hard error instead of backtracking into `alt`.
 fn parse_exactly_one_of(input: &mut &str) -> ModalResult<DepEntry> {
     "^^".parse_next(input)?;
-    multispace0.parse_next(input)?;
+    multispace1.parse_next(input)?;
     cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
         .context(StrContext::Label("'^^' group"))
         .map(DepEntry::ExactlyOneOf)
@@ -200,7 +200,7 @@ fn parse_exactly_one_of(input: &mut &str) -> ModalResult<DepEntry> {
 /// becomes a hard error instead of backtracking into `alt`.
 fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
     "??".parse_next(input)?;
-    multispace0.parse_next(input)?;
+    multispace1.parse_next(input)?;
     cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
         .context(StrContext::Label("'??' group"))
         .map(DepEntry::AtMostOneOf)
@@ -218,7 +218,7 @@ fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
         .parse_next(input)?;
     '?'.parse_next(input)?;
     // After '?', committed to USE conditional
-    multispace0.parse_next(input)?;
+    multispace1.parse_next(input)?;
     let children = cut_err(delimited('(', parse_dep_entries, (multispace0, ')')))
         .context(StrContext::Label("USE conditional group"))
         .parse_next(input)?;
@@ -297,6 +297,8 @@ mod tests {
             }
             _ => panic!("expected AnyOf"),
         }
+
+        assert!(DepEntry::parse("||( dev-libs/bar )").is_err());
     }
 
     #[test]
@@ -315,6 +317,8 @@ mod tests {
             }
             _ => panic!("expected UseConditional"),
         }
+
+        assert!(DepEntry::parse("ssl?( dev-libs/openssl )").is_err());
     }
 
     #[test]
