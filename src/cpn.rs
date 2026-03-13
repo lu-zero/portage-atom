@@ -1,7 +1,8 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::str::FromStr;
 
+use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::cut_err;
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
@@ -14,18 +15,18 @@ use crate::error::{Error, Result};
 ///
 /// See [PMS 3.1](https://projects.gentoo.org/pms/9/pms.html#restrictions-upon-names)
 /// for category and package naming rules.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cpn {
-    pub category: String,
-    pub package: String,
+    pub category: Interned<DefaultInterner>,
+    pub package: Interned<DefaultInterner>,
 }
 
 impl Cpn {
-    /// Create a new Cpn
-    pub fn new(category: impl Into<String>, package: impl Into<String>) -> Self {
+    /// Create a new Cpn from strings
+    pub fn new(category: impl AsRef<str>, package: impl AsRef<str>) -> Self {
         Cpn {
-            category: category.into(),
-            package: package.into(),
+            category: Interned::intern(category.as_ref()),
+            package: Interned::intern(package.as_ref()),
         }
     }
 
@@ -44,22 +45,7 @@ impl Cpn {
 
 impl fmt::Display for Cpn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}/{}", self.category, self.package)
-    }
-}
-
-impl PartialEq for Cpn {
-    fn eq(&self, other: &Self) -> bool {
-        self.category == other.category && self.package == other.package
-    }
-}
-
-impl Eq for Cpn {}
-
-impl Hash for Cpn {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.category.hash(state);
-        self.package.hash(state);
+        write!(f, "{}/{}", self.category.resolve(), self.package.resolve())
     }
 }
 
@@ -71,8 +57,8 @@ impl PartialOrd for Cpn {
 
 impl Ord for Cpn {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.category.cmp(&other.category) {
-            std::cmp::Ordering::Equal => self.package.cmp(&other.package),
+        match self.category.resolve().cmp(other.category.resolve()) {
+            std::cmp::Ordering::Equal => self.package.resolve().cmp(other.package.resolve()),
             other => other,
         }
     }
@@ -90,7 +76,8 @@ impl FromStr for Cpn {
 
 /// Parse category name
 /// PMS 3.1.1: category name may contain [A-Za-z0-9+_.-], must not begin with hyphen or plus
-pub(crate) fn parse_category<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
+pub(crate) fn parse_category<'s>()
+-> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_with_dot;
 
     parse_ident_with_dot()
@@ -98,7 +85,7 @@ pub(crate) fn parse_category<'s>() -> impl Parser<&'s str, String, ErrMode<Conte
             let first_char = s.chars().next().unwrap();
             !matches!(first_char, '-' | '.' | '+')
         })
-        .map(|s: &str| s.to_string())
+        .map(|s: &str| Interned::intern(s))
         .context(StrContext::Label("category"))
 }
 
@@ -109,7 +96,8 @@ pub(crate) fn parse_category<'s>() -> impl Parser<&'s str, String, ErrMode<Conte
 /// Note: In practice, Gentoo's tree contains packages whose names start with
 /// an underscore (e.g. `acct-user/_cron-failure`). We accept those even though
 /// PMS 3.1.2 technically requires an alphanumeric first character.
-pub(crate) fn parse_package<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
+pub(crate) fn parse_package<'s>()
+-> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_base;
 
     parse_ident_base()
@@ -121,7 +109,7 @@ pub(crate) fn parse_package<'s>() -> impl Parser<&'s str, String, ErrMode<Contex
                 .next()
                 .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
         })
-        .map(|s: &str| s.to_string())
+        .map(|s: &str| Interned::intern(s))
         .context(StrContext::Label("package"))
 }
 
@@ -140,8 +128,8 @@ mod tests {
     #[test]
     fn test_cpn_parsing() {
         let cpn = Cpn::parse("dev-lang/rust").unwrap();
-        assert_eq!(cpn.category, "dev-lang");
-        assert_eq!(cpn.package, "rust");
+        assert_eq!(cpn.category.resolve(), "dev-lang");
+        assert_eq!(cpn.package.resolve(), "rust");
         assert_eq!(cpn.to_string(), "dev-lang/rust");
     }
 
@@ -168,12 +156,12 @@ mod tests {
         // names starting with '_'.  We accept them even though PMS 3.1.2
         // requires an alphanumeric first character.
         let cpn = Cpn::parse("acct-user/_cron-failure").unwrap();
-        assert_eq!(cpn.category, "acct-user");
-        assert_eq!(cpn.package, "_cron-failure");
+        assert_eq!(cpn.category.resolve(), "acct-user");
+        assert_eq!(cpn.package.resolve(), "_cron-failure");
 
         let cpn = Cpn::parse("acct-group/_cron-failure").unwrap();
-        assert_eq!(cpn.category, "acct-group");
-        assert_eq!(cpn.package, "_cron-failure");
+        assert_eq!(cpn.category.resolve(), "acct-group");
+        assert_eq!(cpn.package.resolve(), "_cron-failure");
     }
 
     #[test]
@@ -199,7 +187,7 @@ mod tests {
             "CPV parser should handle hyphen in package name correctly"
         );
         let cpv1 = cpv1.unwrap();
-        assert_eq!(cpv1.package(), "pkg-");
+        assert_eq!(cpv1.cpn.package.resolve(), "pkg-");
         assert_eq!(cpv1.version.numbers, vec![1, 2]);
     }
 
@@ -233,5 +221,12 @@ mod tests {
         assert!(Cpn::parse("-dev-lang/rust").is_err());
         assert!(Cpn::parse(".dev-lang/rust").is_err());
         assert!(Cpn::parse("+dev-lang/rust").is_err());
+    }
+
+    #[test]
+    fn test_cpn_copy() {
+        let cpn = Cpn::parse("dev-lang/rust").unwrap();
+        let cpn2 = cpn;
+        assert_eq!(cpn, cpn2);
     }
 }

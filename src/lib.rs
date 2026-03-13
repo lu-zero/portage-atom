@@ -12,8 +12,8 @@
 //! use portage_atom::Cpn;
 //!
 //! let cpn = Cpn::parse("dev-lang/rust").unwrap();
-//! assert_eq!(cpn.category, "dev-lang");
-//! assert_eq!(cpn.package, "rust");
+//! assert_eq!(cpn.category.resolve(), "dev-lang");
+//! assert_eq!(cpn.package.resolve(), "rust");
 //! ```
 //!
 //! Parse a versioned atom:
@@ -43,6 +43,8 @@ mod parsers;
 mod slot;
 mod use_dep;
 mod version;
+
+pub use gentoo_interner;
 
 // Re-export main types
 pub use cpn::Cpn;
