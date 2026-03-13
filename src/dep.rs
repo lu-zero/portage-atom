@@ -5,11 +5,11 @@ use winnow::combinator::{alt, cut_err, opt, preceded};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
 
-use crate::cpn::{parse_cpn, Cpn};
-use crate::cpv::{parse_cpv, Cpv};
+use crate::cpn::{Cpn, parse_cpn};
+use crate::cpv::{Cpv, parse_cpv};
 use crate::error::{Error, Result};
-use crate::slot::{parse_slot_dep, SlotDep};
-use crate::use_dep::{parse_use_deps, UseDep};
+use crate::slot::{SlotDep, parse_slot_dep};
+use crate::use_dep::{UseDep, parse_use_deps};
 use crate::version::Version;
 
 /// Package dependency blocker type
@@ -82,21 +82,19 @@ impl Dep {
         Self::parse(s)
     }
 
-    /// Get the category
+    /// Get the category string
     pub fn category(&self) -> &str {
-        &self.cpn.category
+        self.cpn.category.resolve()
     }
 
-    /// Get the package name
+    /// Get the package name string
     pub fn package(&self) -> &str {
-        &self.cpn.package
+        self.cpn.package.resolve()
     }
 
     /// Convert to Cpv if versioned
     pub fn cpv(&self) -> Option<Cpv> {
-        self.version
-            .as_ref()
-            .map(|v| Cpv::new(self.cpn.clone(), v.clone()))
+        self.version.as_ref().map(|v| Cpv::new(self.cpn, v.clone()))
     }
 }
 

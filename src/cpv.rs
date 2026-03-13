@@ -1,15 +1,16 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::str::FromStr;
 
+use gentoo_interner::Interned;
 use winnow::combinator::cut_err;
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
 
-use crate::cpn::{parse_category, parse_package, Cpn};
+use crate::cpn::{Cpn, parse_category, parse_package};
 use crate::error::{Error, Result};
 use crate::parsers::parse_ident_with_dot_star;
-use crate::version::{parse_version, Version};
+use crate::version::{Version, parse_version};
 
 /// Category/Package/Version (Cpv)
 ///
@@ -21,7 +22,7 @@ use crate::version::{parse_version, Version};
 /// for the version syntax and
 /// [PMS 3.3](https://projects.gentoo.org/pms/9/pms.html#version-comparison)
 /// for the version comparison algorithm.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Cpv {
     pub cpn: Cpn,
     pub version: Version,
@@ -44,36 +45,11 @@ impl Cpv {
     pub fn try_new(s: &str) -> Result<Self> {
         Self::parse(s)
     }
-
-    /// Get the category
-    pub fn category(&self) -> &str {
-        &self.cpn.category
-    }
-
-    /// Get the package name
-    pub fn package(&self) -> &str {
-        &self.cpn.package
-    }
 }
 
 impl fmt::Display for Cpv {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}-{}", self.cpn, self.version)
-    }
-}
-
-impl PartialEq for Cpv {
-    fn eq(&self, other: &Self) -> bool {
-        self.cpn == other.cpn && self.version == other.version
-    }
-}
-
-impl Eq for Cpv {}
-
-impl Hash for Cpv {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.cpn.hash(state);
-        self.version.hash(state);
     }
 }
 
@@ -107,7 +83,7 @@ impl FromStr for Cpv {
 /// Per PMS, version always starts after the LAST hyphen followed by a digit
 pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>> {
     (parse_category(), '/', cut_err(parse_ident_with_dot_star()))
-        .verify_map(|(category, _, pkg_ver): (String, char, &str)| {
+        .verify_map(|(category, _, pkg_ver): (Interned<_>, char, &str)| {
             // Find the last -<digit> boundary to split package from version
             let bytes = pkg_ver.as_bytes();
             let mut version_start = None;
@@ -143,8 +119,8 @@ mod tests {
     #[test]
     fn test_cpv_parsing() {
         let cpv = Cpv::parse("dev-lang/rust-1.75.0").unwrap();
-        assert_eq!(cpv.category(), "dev-lang");
-        assert_eq!(cpv.package(), "rust");
+        assert_eq!(cpv.cpn.category.resolve(), "dev-lang");
+        assert_eq!(cpv.cpn.package.resolve(), "rust");
         assert_eq!(cpv.version.numbers[0], 1);
         assert_eq!(cpv.version.numbers[1], 75);
         assert_eq!(cpv.version.numbers[2], 0);

@@ -6,7 +6,7 @@ use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
 use winnow::token::any;
 
-use crate::dep::{parse_dep, Dep};
+use crate::dep::{Dep, parse_dep};
 use crate::error::{Error, Result};
 use crate::parsers::parse_ident_base;
 
