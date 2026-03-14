@@ -9,16 +9,16 @@ fn main() {
     println!("1. Simple Cpn:");
     let cpn = Cpn::parse("dev-lang/rust").expect("Failed to parse cpn");
     println!("   Input: dev-lang/rust");
-    println!("   Category: {}", cpn.category.resolve());
-    println!("   Package: {}", cpn.package.resolve());
+    println!("   Category: {}", cpn.category);
+    println!("   Package: {}", cpn.package);
     println!("   Output: {}\n", cpn);
 
     // Versioned atom
     println!("2. Versioned Cpv:");
     let cpv = Cpv::parse("dev-lang/rust-1.75.0").expect("Failed to parse cpv");
     println!("   Input: dev-lang/rust-1.75.0");
-    println!("   Category: {}", cpv.cpn.category.resolve());
-    println!("   Package: {}", cpv.cpn.package.resolve());
+    println!("   Category: {}", cpv.cpn.category);
+    println!("   Package: {}", cpv.cpn.package);
     println!("   Version: {}", cpv.version);
     println!("   Output: {}\n", cpv);
 

@@ -11,7 +11,7 @@ keywords = ["gentoo", "portage", "parser", "pms"]
 categories = ["parser-implementations", "development-tools"]
 
 [dependencies]
-gentoo-interner = "0.1"
+gentoo-interner = "0.1.1"
 winnow = "0.7"
 thiserror = "2"
 

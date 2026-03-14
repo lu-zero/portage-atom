@@ -119,8 +119,8 @@ mod tests {
     #[test]
     fn test_cpv_parsing() {
         let cpv = Cpv::parse("dev-lang/rust-1.75.0").unwrap();
-        assert_eq!(cpv.cpn.category.resolve(), "dev-lang");
-        assert_eq!(cpv.cpn.package.resolve(), "rust");
+        assert_eq!(cpv.cpn.category, "dev-lang");
+        assert_eq!(cpv.cpn.package, "rust");
         assert_eq!(cpv.version.numbers[0], 1);
         assert_eq!(cpv.version.numbers[1], 75);
         assert_eq!(cpv.version.numbers[2], 0);

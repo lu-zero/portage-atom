@@ -12,8 +12,8 @@
 //! use portage_atom::Cpn;
 //!
 //! let cpn = Cpn::parse("dev-lang/rust").unwrap();
-//! assert_eq!(cpn.category.resolve(), "dev-lang");
-//! assert_eq!(cpn.package.resolve(), "rust");
+//! assert_eq!(cpn.category, "dev-lang");
+//! assert_eq!(cpn.package, "rust");
 //! ```
 //!
 //! Parse a versioned atom:
