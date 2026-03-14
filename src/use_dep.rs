@@ -1,6 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, cut_err, delimited, opt, preceded, separated, terminated};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
@@ -73,10 +74,10 @@ impl fmt::Display for UseDepKind {
 /// relative to the parent package's flag state.
 ///
 /// See [PMS 8.3.4](https://projects.gentoo.org/pms/9/pms.html#style-and-style-use-dependencies).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UseDep {
     /// The USE flag name (e.g. `ssl`, `debug`, `python_targets_python3_12`).
-    pub flag: String,
+    pub flag: Interned<DefaultInterner>,
     /// The kind of constraint this dependency expresses.
     pub kind: UseDepKind,
     /// Optional default value (`(+)` or `(-)`) for when the flag is not
@@ -85,17 +86,17 @@ pub struct UseDep {
 }
 
 impl UseDep {
-    pub fn new(flag: impl Into<String>, kind: UseDepKind) -> Self {
+    pub fn new(flag: impl AsRef<str>, kind: UseDepKind) -> Self {
         UseDep {
-            flag: flag.into(),
+            flag: Interned::intern(flag.as_ref()),
             kind,
             default: None,
         }
     }
 
-    pub fn with_default(flag: impl Into<String>, kind: UseDepKind, default: UseDefault) -> Self {
+    pub fn with_default(flag: impl AsRef<str>, kind: UseDepKind, default: UseDefault) -> Self {
         UseDep {
-            flag: flag.into(),
+            flag: Interned::intern(flag.as_ref()),
             kind,
             default: Some(default),
         }
@@ -158,12 +159,12 @@ impl FromStr for UseDep {
 
 /// Parse USE flag name
 /// PMS 3.1.4: must begin with alphanumeric character
-fn parse_use_flag<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
+fn parse_use_flag<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_with_at;
 
     parse_ident_with_at()
         .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
-        .map(|s: &str| s.to_string())
+        .map(|s: &str| Interned::intern(s))
 }
 
 /// Parse USE default

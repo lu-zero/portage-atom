@@ -1,6 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, cut_err, opt, preceded};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
@@ -54,7 +55,7 @@ pub struct Dep {
     /// Optional USE flag constraints (e.g. `[ssl,-debug]`).
     pub use_deps: Option<Vec<UseDep>>,
     /// Optional repository name (e.g. `gentoo` from `::gentoo`).
-    pub repo: Option<String>,
+    pub repo: Option<Interned<DefaultInterner>>,
 }
 
 impl Dep {
@@ -171,10 +172,10 @@ fn parse_blocker<'s>() -> impl Parser<&'s str, Blocker, ErrMode<ContextError>> {
 }
 
 /// Parse repository name (alphanumeric, _, -, +)
-fn parse_repo<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
+fn parse_repo<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_base;
 
-    parse_ident_base().map(|s: &str| s.to_string())
+    parse_ident_base().map(|s: &str| Interned::intern(s))
 }
 
 /// Parse full dependency atom
@@ -289,7 +290,7 @@ mod tests {
     #[test]
     fn test_dep_with_repo() {
         let dep = Dep::parse("dev-lang/rust::gentoo").unwrap();
-        assert_eq!(dep.repo, Some("gentoo".to_string()));
+        assert_eq!(dep.repo, Some(Interned::intern("gentoo")));
         assert_eq!(dep.to_string(), "dev-lang/rust::gentoo");
     }
 
@@ -300,7 +301,7 @@ mod tests {
         assert!(dep.version.is_some());
         assert!(dep.slot_dep.is_some());
         assert!(dep.use_deps.is_some());
-        assert_eq!(dep.repo, Some("gentoo".to_string()));
+        assert_eq!(dep.repo, Some(Interned::intern("gentoo")));
     }
 
     #[test]
@@ -324,7 +325,7 @@ mod tests {
                 op: Some(o),
             } => {
                 assert_eq!(s.slot, "0");
-                assert_eq!(s.subslot, Some("1.75".to_string()));
+                assert_eq!(s.subslot, Some(Interned::intern("1.75")));
                 assert_eq!(*o, SlotOperator::Equal);
             }
             _ => panic!("Unexpected slot dep format"),
@@ -334,6 +335,6 @@ mod tests {
         let use_deps = dep.use_deps.as_ref().unwrap();
         assert_eq!(use_deps.len(), 3);
 
-        assert_eq!(dep.repo, Some("gentoo".to_string()));
+        assert_eq!(dep.repo, Some(Interned::intern("gentoo")));
     }
 }
