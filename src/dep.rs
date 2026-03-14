@@ -84,12 +84,12 @@ impl Dep {
 
     /// Get the category string
     pub fn category(&self) -> &str {
-        self.cpn.category.resolve()
+        &self.cpn.category
     }
 
     /// Get the package name string
     pub fn package(&self) -> &str {
-        self.cpn.package.resolve()
+        &self.cpn.package
     }
 
     /// Convert to Cpv if versioned

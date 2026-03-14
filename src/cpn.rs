@@ -45,7 +45,7 @@ impl Cpn {
 
 impl fmt::Display for Cpn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}/{}", self.category.resolve(), self.package.resolve())
+        write!(f, "{}/{}", self.category, self.package)
     }
 }
 
@@ -57,8 +57,8 @@ impl PartialOrd for Cpn {
 
 impl Ord for Cpn {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.category.resolve().cmp(other.category.resolve()) {
-            std::cmp::Ordering::Equal => self.package.resolve().cmp(other.package.resolve()),
+        match (*self.category).cmp(&*other.category) {
+            std::cmp::Ordering::Equal => (*self.package).cmp(&*other.package),
             other => other,
         }
     }
@@ -128,8 +128,8 @@ mod tests {
     #[test]
     fn test_cpn_parsing() {
         let cpn = Cpn::parse("dev-lang/rust").unwrap();
-        assert_eq!(cpn.category.resolve(), "dev-lang");
-        assert_eq!(cpn.package.resolve(), "rust");
+        assert_eq!(cpn.category, "dev-lang");
+        assert_eq!(cpn.package, "rust");
         assert_eq!(cpn.to_string(), "dev-lang/rust");
     }
 
@@ -156,12 +156,12 @@ mod tests {
         // names starting with '_'.  We accept them even though PMS 3.1.2
         // requires an alphanumeric first character.
         let cpn = Cpn::parse("acct-user/_cron-failure").unwrap();
-        assert_eq!(cpn.category.resolve(), "acct-user");
-        assert_eq!(cpn.package.resolve(), "_cron-failure");
+        assert_eq!(cpn.category, "acct-user");
+        assert_eq!(cpn.package, "_cron-failure");
 
         let cpn = Cpn::parse("acct-group/_cron-failure").unwrap();
-        assert_eq!(cpn.category.resolve(), "acct-group");
-        assert_eq!(cpn.package.resolve(), "_cron-failure");
+        assert_eq!(cpn.category, "acct-group");
+        assert_eq!(cpn.package, "_cron-failure");
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
             "CPV parser should handle hyphen in package name correctly"
         );
         let cpv1 = cpv1.unwrap();
-        assert_eq!(cpv1.cpn.package.resolve(), "pkg-");
+        assert_eq!(cpv1.cpn.package, "pkg-");
         assert_eq!(cpv1.version.numbers, vec![1, 2]);
     }
 
