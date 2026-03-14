@@ -1,5 +1,6 @@
 use std::fmt;
 
+use gentoo_interner::{DefaultInterner, Interned};
 use winnow::ascii::{multispace0, multispace1};
 use winnow::combinator::{alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat};
 use winnow::error::{ContextError, ErrMode, StrContext};
@@ -23,7 +24,7 @@ pub enum DepEntry {
     /// `flag? ( children )` or `!flag? ( children )` conditional group.
     UseConditional {
         /// USE flag name.
-        flag: String,
+        flag: Interned<DefaultInterner>,
         /// `true` for `!use?` (negated conditional).
         negate: bool,
         /// Dependencies guarded by this flag.
@@ -213,8 +214,8 @@ fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
 /// commits so a missing `( ... )` is a hard error.
 fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
     let negate = opt('!').parse_next(input)?.is_some();
-    let flag: String = parse_ident_base()
-        .map(|s: &str| s.to_string())
+    let flag: Interned<DefaultInterner> = parse_ident_base()
+        .map(|s: &str| Interned::intern(s))
         .parse_next(input)?;
     '?'.parse_next(input)?;
     // After '?', committed to USE conditional
@@ -527,7 +528,7 @@ mod tests {
         }
         match &entries[1] {
             DepEntry::Atom(dep) => {
-                assert_eq!(dep.repo, Some("gentoo".to_string()));
+                assert_eq!(dep.repo, Some(gentoo_interner::Interned::intern("gentoo")));
             }
             _ => panic!("expected Atom"),
         }

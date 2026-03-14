@@ -1,6 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, opt, preceded};
 use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::prelude::*;
@@ -36,26 +37,26 @@ impl fmt::Display for SlotOperator {
 /// dependencies using `:=` must be rebuilt.
 ///
 /// See [PMS 7.2](https://projects.gentoo.org/pms/9/pms.html#mandatory-ebuilddefined-variables).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Slot {
     /// The slot name (e.g. `0`, `3.12`, `stable`).
-    pub slot: String,
+    pub slot: Interned<DefaultInterner>,
     /// Optional sub-slot for ABI tracking (e.g. `1.2` in `:0/1.2`).
-    pub subslot: Option<String>,
+    pub subslot: Option<Interned<DefaultInterner>>,
 }
 
 impl Slot {
-    pub fn new(slot: impl Into<String>) -> Self {
+    pub fn new(slot: impl AsRef<str>) -> Self {
         Slot {
-            slot: slot.into(),
+            slot: Interned::intern(slot.as_ref()),
             subslot: None,
         }
     }
 
-    pub fn with_subslot(slot: impl Into<String>, subslot: impl Into<String>) -> Self {
+    pub fn with_subslot(slot: impl AsRef<str>, subslot: impl AsRef<str>) -> Self {
         Slot {
-            slot: slot.into(),
-            subslot: Some(subslot.into()),
+            slot: Interned::intern(slot.as_ref()),
+            subslot: Some(Interned::intern(subslot.as_ref())),
         }
     }
 }
@@ -63,7 +64,7 @@ impl Slot {
 impl fmt::Display for Slot {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.slot)?;
-        if let Some(ref subslot) = self.subslot {
+        if let Some(subslot) = self.subslot {
             write!(f, "/{}", subslot)?;
         }
         Ok(())
@@ -126,7 +127,7 @@ impl FromStr for SlotDep {
 
 /// Parse slot name (alphanumeric, _, -, +, .)
 /// PMS 3.1.3: must not begin with hyphen, dot, or plus
-fn parse_slot_name<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> {
+fn parse_slot_name<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
     use crate::parsers::parse_ident_with_dot;
 
     parse_ident_with_dot()
@@ -134,7 +135,7 @@ fn parse_slot_name<'s>() -> impl Parser<&'s str, String, ErrMode<ContextError>> 
             let first_char = s.chars().next().unwrap();
             !matches!(first_char, '-' | '.' | '+')
         })
-        .map(|s: &str| s.to_string())
+        .map(|s: &str| Interned::intern(s))
 }
 
 /// Parse slot with optional subslot
@@ -193,7 +194,7 @@ mod tests {
                 op: None,
             } => {
                 assert_eq!(s.slot, "0");
-                assert_eq!(s.subslot, Some("2.1".to_string()));
+                assert_eq!(s.subslot, Some(Interned::intern("2.1")));
             }
             _ => panic!("unexpected slot dep"),
         }
