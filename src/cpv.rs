@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use gentoo_interner::Interned;
 use winnow::combinator::cut_err;
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 
 use crate::cpn::{Cpn, parse_category, parse_package};
@@ -36,7 +36,7 @@ impl Cpv {
 
     /// Parse from string
     pub fn parse(input: &str) -> Result<Self> {
-        parse_cpv()
+        parse_cpv
             .parse(input)
             .map_err(|e| Error::InvalidCpv(format!("{}: {}", input, e)))
     }
@@ -81,8 +81,8 @@ impl FromStr for Cpv {
 /// Parse Cpv (category/package-version)
 /// Package names can contain hyphens, so we need to find the version boundary
 /// Per PMS, version always starts after the LAST hyphen followed by a digit
-pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>> {
-    (parse_category(), '/', cut_err(parse_ident_with_dot_star()))
+pub(crate) fn parse_cpv(input: &mut &str) -> ModalResult<Cpv> {
+    (parse_category, '/', cut_err(parse_ident_with_dot_star))
         .verify_map(|(category, _, pkg_ver): (Interned<_>, char, &str)| {
             // Find the last -<digit> boundary to split package from version
             let bytes = pkg_ver.as_bytes();
@@ -99,10 +99,10 @@ pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>
             let ver_str = &pkg_ver[version_pos + 1..];
 
             // Validate package name
-            let package = parse_package().parse(pkg_str).ok()?;
+            let package = parse_package.parse(pkg_str).ok()?;
 
             // Parse version
-            let version = parse_version().parse(ver_str).ok()?;
+            let version = parse_version.parse(ver_str).ok()?;
 
             Some(Cpv {
                 cpn: Cpn { category, package },
@@ -110,6 +110,7 @@ pub(crate) fn parse_cpv<'s>() -> impl Parser<&'s str, Cpv, ErrMode<ContextError>
             })
         })
         .context(StrContext::Label("cpv"))
+        .parse_next(input)
 }
 
 #[cfg(test)]

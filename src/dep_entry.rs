@@ -2,8 +2,10 @@ use std::fmt;
 
 use gentoo_interner::{DefaultInterner, Interned};
 use winnow::ascii::{multispace0, multispace1};
-use winnow::combinator::{alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat};
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::combinator::{
+    alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat, terminated,
+};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 use winnow::token::any;
 
@@ -55,7 +57,7 @@ impl DepEntry {
     /// assert_eq!(entries.len(), 2);
     /// ```
     pub fn parse(input: &str) -> Result<Vec<DepEntry>> {
-        parse_dep_string()
+        parse_dep_string
             .parse(input)
             .map_err(|e| Error::InvalidDepString(format!("{e}")))
     }
@@ -119,12 +121,8 @@ impl fmt::Display for DepEntry {
 // Winnow parsers
 
 /// Parse a complete dependency string (top-level).
-pub(crate) fn parse_dep_string<'s>() -> impl Parser<&'s str, Vec<DepEntry>, ErrMode<ContextError>> {
-    move |input: &mut &'s str| {
-        let entries = parse_dep_entries(input)?;
-        multispace0.parse_next(input)?;
-        Ok(entries)
-    }
+pub(crate) fn parse_dep_string(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
+    terminated(parse_dep_entries, multispace0).parse_next(input)
 }
 
 /// Parse zero or more dependency entries separated by whitespace.
@@ -156,12 +154,12 @@ fn parse_dep_entry(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
         '^' => parse_exactly_one_of.map(|e| vec![e]),
         '?' => parse_at_most_one_of.map(|e| vec![e]),
         '(' => parse_paren_group,
-        '>' | '<' | '~' | '=' => parse_dep()
+        '>' | '<' | '~' | '=' => parse_dep
             .context(StrContext::Label("dependency atom"))
             .map(|d| vec![DepEntry::Atom(d)]),
         _ => alt((
             parse_use_conditional.map(|e| vec![e]),
-            parse_dep()
+            parse_dep
                 .context(StrContext::Label("dependency atom"))
                 .map(|d| vec![DepEntry::Atom(d)]),
         )),
@@ -214,7 +212,7 @@ fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
 /// commits so a missing `( ... )` is a hard error.
 fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
     let negate = opt('!').parse_next(input)?.is_some();
-    let flag: Interned<DefaultInterner> = parse_ident_base()
+    let flag: Interned<DefaultInterner> = parse_ident_base
         .map(|s: &str| Interned::intern(s))
         .parse_next(input)?;
     '?'.parse_next(input)?;

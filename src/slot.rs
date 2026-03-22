@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, opt, preceded};
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 
 use crate::error::{Error, Result};
@@ -92,7 +92,7 @@ pub enum SlotDep {
 impl SlotDep {
     /// Parse from string (without leading :)
     pub fn parse(input: &str) -> Result<Self> {
-        parse_slot_dep()
+        parse_slot_dep
             .parse(input)
             .map_err(|e| Error::InvalidSlot(format!("{}: {}", input, e)))
     }
@@ -127,43 +127,47 @@ impl FromStr for SlotDep {
 
 /// Parse slot name (alphanumeric, _, -, +, .)
 /// PMS 3.1.3: must not begin with hyphen, dot, or plus
-fn parse_slot_name<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
+fn parse_slot_name(input: &mut &str) -> ModalResult<Interned<DefaultInterner>> {
     use crate::parsers::parse_ident_with_dot;
 
-    parse_ident_with_dot()
+    parse_ident_with_dot
         .verify(|s: &str| {
             let first_char = s.chars().next().unwrap();
             !matches!(first_char, '-' | '.' | '+')
         })
         .map(|s: &str| Interned::intern(s))
+        .parse_next(input)
 }
 
 /// Parse slot with optional subslot
-fn parse_slot<'s>() -> impl Parser<&'s str, Slot, ErrMode<ContextError>> {
-    (parse_slot_name(), opt(preceded('/', parse_slot_name())))
+fn parse_slot(input: &mut &str) -> ModalResult<Slot> {
+    (parse_slot_name, opt(preceded('/', parse_slot_name)))
         .map(|(slot, subslot)| Slot { slot, subslot })
+        .parse_next(input)
 }
 
 /// Parse slot operator
-fn parse_slot_operator<'s>() -> impl Parser<&'s str, SlotOperator, ErrMode<ContextError>> {
+fn parse_slot_operator(input: &mut &str) -> ModalResult<SlotOperator> {
     alt((
         '='.value(SlotOperator::Equal),
         '*'.value(SlotOperator::Star),
     ))
+    .parse_next(input)
 }
 
 /// Parse slot dependency (after the : has been consumed)
-pub(crate) fn parse_slot_dep<'s>() -> impl Parser<&'s str, SlotDep, ErrMode<ContextError>> {
+pub(crate) fn parse_slot_dep(input: &mut &str) -> ModalResult<SlotDep> {
     alt((
         // Just operator: := or :*
-        parse_slot_operator().map(SlotDep::Operator),
+        parse_slot_operator.map(SlotDep::Operator),
         // Slot with optional operator: :0, :0=, :0/1.2
-        (parse_slot(), opt(parse_slot_operator())).map(|(slot, op)| SlotDep::Slot {
+        (parse_slot, opt(parse_slot_operator)).map(|(slot, op)| SlotDep::Slot {
             slot: Some(slot),
             op,
         }),
     ))
     .context(StrContext::Label("slot"))
+    .parse_next(input)
 }
 
 #[cfg(test)]

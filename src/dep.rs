@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, cut_err, opt, preceded};
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 
 use crate::cpn::{Cpn, parse_cpn};
@@ -73,7 +73,7 @@ impl Dep {
 
     /// Parse from string
     pub fn parse(input: &str) -> Result<Self> {
-        parse_dep()
+        parse_dep
             .parse(input)
             .map_err(|e| Error::InvalidDep(format!("{}: {}", input, e)))
     }
@@ -167,71 +167,71 @@ impl FromStr for Dep {
 // Winnow parsers
 
 /// Parse blocker prefix
-fn parse_blocker<'s>() -> impl Parser<&'s str, Blocker, ErrMode<ContextError>> {
-    alt(("!!".value(Blocker::Strong), "!".value(Blocker::Weak)))
+fn parse_blocker(input: &mut &str) -> ModalResult<Blocker> {
+    alt(("!!".value(Blocker::Strong), "!".value(Blocker::Weak))).parse_next(input)
 }
 
 /// Parse repository name (alphanumeric, _, -, +)
-fn parse_repo<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
+fn parse_repo(input: &mut &str) -> ModalResult<Interned<DefaultInterner>> {
     use crate::parsers::parse_ident_base;
 
-    parse_ident_base().map(|s: &str| Interned::intern(s))
+    parse_ident_base
+        .map(|s: &str| Interned::intern(s))
+        .parse_next(input)
 }
 
 /// Parse full dependency atom
 /// Handles: [!|!!][op]cat/pkg[-ver][:slot][use][::repo]
-pub(crate) fn parse_dep<'s>() -> impl Parser<&'s str, Dep, ErrMode<ContextError>> {
-    move |input: &mut &'s str| {
-        use crate::version::parse_operator;
-        use winnow::combinator::fail;
+pub(crate) fn parse_dep(input: &mut &str) -> ModalResult<Dep> {
+    use crate::version::parse_operator;
+    use winnow::combinator::fail;
 
-        // Parse optional blocker
-        let blocker = opt(parse_blocker()).parse_next(input)?;
+    // Parse optional blocker
+    let blocker = opt(parse_blocker).parse_next(input)?;
 
-        // Parse optional operator (just the operator, not the version)
-        let operator = opt(parse_operator()).parse_next(input)?;
+    // Parse optional operator (just the operator, not the version)
+    let operator = opt(parse_operator).parse_next(input)?;
 
-        // Try to parse as CPV first (contains version), fall back to CPN
-        let (cpn, mut version) = if operator.is_some() {
-            // Operator requires version — commit to parsing a CPV
-            let cpv = cut_err(parse_cpv())
-                .context(StrContext::Label("versioned atom"))
-                .parse_next(input)?;
-            (cpv.cpn, Some(cpv.version))
-        } else {
-            alt((
-                parse_cpv().map(|cpv| (cpv.cpn, Some(cpv.version))),
-                parse_cpn().map(|cpn| (cpn, None)),
-            ))
-            .parse_next(input)?
-        };
+    // Try to parse as CPV first (contains version), fall back to CPN
+    let (cpn, mut version) = if operator.is_some() {
+        // Operator requires version — commit to parsing a CPV
+        let cpv = cut_err(parse_cpv)
+            .context(StrContext::Label("versioned atom"))
+            .parse_next(input)?;
+        (cpv.cpn, Some(cpv.version))
+    } else {
+        alt((
+            parse_cpv.map(|cpv| (cpv.cpn, Some(cpv.version))),
+            parse_cpn.map(|cpn| (cpn, None)),
+        ))
+        .parse_next(input)?
+    };
 
-        // Apply operator if we have one
-        if let Some(op) = operator {
-            match &mut version {
-                Some(v) => v.op = Some(op),
-                None => return fail.parse_next(input), // Operator requires version
-            }
+    // Apply operator if we have one
+    if let Some(op) = operator {
+        match &mut version {
+            Some(v) => v.op = Some(op),
+            None => return fail.parse_next(input), // Operator requires version
         }
-
-        // Parse optional slot dependency
-        let slot_dep = opt(preceded(':', parse_slot_dep())).parse_next(input)?;
-
-        // Parse optional USE dependencies
-        let use_deps = opt(parse_use_deps()).parse_next(input)?;
-
-        // Parse optional repository
-        let repo = opt(preceded("::", parse_repo())).parse_next(input)?;
-
-        Ok(Dep {
-            cpn,
-            blocker,
-            version,
-            slot_dep,
-            use_deps,
-            repo,
-        })
     }
+
+    // Parse optional slot dependency
+    let slot_dep = opt(preceded(':', parse_slot_dep)).parse_next(input)?;
+
+    // Parse optional USE dependencies
+    let use_deps = opt(parse_use_deps).parse_next(input)?;
+
+    // Parse optional repository
+    let repo = opt(preceded("::", parse_repo)).parse_next(input)?;
+
+    Ok(Dep {
+        cpn,
+        blocker,
+        version,
+        slot_dep,
+        use_deps,
+        repo,
+    })
 }
 
 #[cfg(test)]
