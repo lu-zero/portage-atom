@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use winnow::ascii::digit1;
 use winnow::combinator::{alt, cut_err, opt, preceded, repeat, separated};
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 use winnow::token::one_of;
 
@@ -235,7 +235,7 @@ pub struct Version {
 impl Version {
     /// Parse version from string without operator
     pub fn parse(input: &str) -> Result<Self> {
-        parse_version()
+        parse_version
             .parse(input)
             .map_err(|e| Error::InvalidVersion(format!("{}: {}", input, e)))
     }
@@ -404,15 +404,15 @@ impl Version {
 
 // Winnow parsers
 
-fn parse_number<'s>() -> impl Parser<&'s str, u64, ErrMode<ContextError>> {
-    digit1.try_map(|s: &str| s.parse::<u64>())
+fn parse_number(input: &mut &str) -> ModalResult<u64> {
+    digit1.try_map(|s: &str| s.parse::<u64>()).parse_next(input)
 }
 
-fn parse_letter<'s>() -> impl Parser<&'s str, char, ErrMode<ContextError>> {
-    one_of('a'..='z')
+fn parse_letter(input: &mut &str) -> ModalResult<char> {
+    one_of('a'..='z').parse_next(input)
 }
 
-fn parse_suffix_kind<'s>() -> impl Parser<&'s str, SuffixKind, ErrMode<ContextError>> {
+fn parse_suffix_kind(input: &mut &str) -> ModalResult<SuffixKind> {
     alt((
         "alpha".value(SuffixKind::Alpha),
         "beta".value(SuffixKind::Beta),
@@ -420,23 +420,27 @@ fn parse_suffix_kind<'s>() -> impl Parser<&'s str, SuffixKind, ErrMode<ContextEr
         "rc".value(SuffixKind::Rc),
         "p".value(SuffixKind::P),
     ))
+    .parse_next(input)
 }
 
-fn parse_suffix<'s>() -> impl Parser<&'s str, Suffix, ErrMode<ContextError>> {
-    preceded('_', cut_err((parse_suffix_kind(), opt(parse_number()))))
+fn parse_suffix(input: &mut &str) -> ModalResult<Suffix> {
+    preceded('_', cut_err((parse_suffix_kind, opt(parse_number))))
         .map(|(kind, version)| Suffix { kind, version })
+        .parse_next(input)
 }
 
-fn parse_revision<'s>() -> impl Parser<&'s str, Revision, ErrMode<ContextError>> {
-    preceded("-r", cut_err(parse_number())).map(Revision)
+fn parse_revision(input: &mut &str) -> ModalResult<Revision> {
+    preceded("-r", cut_err(parse_number))
+        .map(Revision)
+        .parse_next(input)
 }
 
-pub(crate) fn parse_version<'s>() -> impl Parser<&'s str, Version, ErrMode<ContextError>> {
+pub(crate) fn parse_version(input: &mut &str) -> ModalResult<Version> {
     (
-        separated(1.., parse_number(), '.'),
-        opt(parse_letter()),
-        repeat(0.., parse_suffix()),
-        opt(parse_revision()),
+        separated(1.., parse_number, '.'),
+        opt(parse_letter),
+        repeat(0.., parse_suffix),
+        opt(parse_revision),
         opt('*'), // Handle PMS glob suffix for version wildcard matching
     )
         .map(|(numbers, letter, suffixes, revision, has_glob)| Version {
@@ -448,9 +452,10 @@ pub(crate) fn parse_version<'s>() -> impl Parser<&'s str, Version, ErrMode<Conte
             glob: has_glob.is_some(),
         })
         .context(StrContext::Label("version"))
+        .parse_next(input)
 }
 
-pub(crate) fn parse_operator<'s>() -> impl Parser<&'s str, Operator, ErrMode<ContextError>> {
+pub(crate) fn parse_operator(input: &mut &str) -> ModalResult<Operator> {
     alt((
         "<=".value(Operator::LessOrEqual),
         "<".value(Operator::Less),
@@ -460,6 +465,7 @@ pub(crate) fn parse_operator<'s>() -> impl Parser<&'s str, Operator, ErrMode<Con
         "=".value(Operator::Equal),
     ))
     .context(StrContext::Label("operator"))
+    .parse_next(input)
 }
 
 impl FromStr for Version {

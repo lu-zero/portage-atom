@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use gentoo_interner::{DefaultInterner, Interned};
 use winnow::combinator::{alt, cut_err, delimited, opt, preceded, separated, terminated};
-use winnow::error::{ContextError, ErrMode, StrContext};
+use winnow::error::StrContext;
 use winnow::prelude::*;
 
 use crate::error::{Error, Result};
@@ -104,7 +104,7 @@ impl UseDep {
 
     /// Parse single USE dependency (without brackets)
     pub fn parse(input: &str) -> Result<Self> {
-        parse_use_dep_item()
+        parse_use_dep_item
             .parse(input)
             .map_err(|e| Error::InvalidUseDep(format!("{}: {}", input, e)))
     }
@@ -159,85 +159,83 @@ impl FromStr for UseDep {
 
 /// Parse USE flag name
 /// PMS 3.1.4: must begin with alphanumeric character
-fn parse_use_flag<'s>() -> impl Parser<&'s str, Interned<DefaultInterner>, ErrMode<ContextError>> {
+fn parse_use_flag(input: &mut &str) -> ModalResult<Interned<DefaultInterner>> {
     use crate::parsers::parse_ident_with_at;
 
-    parse_ident_with_at()
+    parse_ident_with_at
         .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
         .map(|s: &str| Interned::intern(s))
+        .parse_next(input)
 }
 
 /// Parse USE default
-fn parse_use_default<'s>() -> impl Parser<&'s str, UseDefault, ErrMode<ContextError>> {
+fn parse_use_default(input: &mut &str) -> ModalResult<UseDefault> {
     alt((
         "(+)".value(UseDefault::Enabled),
         "(-)".value(UseDefault::Disabled),
     ))
+    .parse_next(input)
 }
 
 /// Parse single USE dependency item
-pub(crate) fn parse_use_dep_item<'s>() -> impl Parser<&'s str, UseDep, ErrMode<ContextError>> {
+pub(crate) fn parse_use_dep_item(input: &mut &str) -> ModalResult<UseDep> {
     alt((
         // !flag? - inverse conditional
-        (
-            preceded('!', parse_use_flag()),
-            opt(parse_use_default()),
-            '?',
-        )
-            .map(|(flag, default, _)| UseDep {
+        (preceded('!', parse_use_flag), opt(parse_use_default), '?').map(|(flag, default, _)| {
+            UseDep {
                 flag,
                 kind: UseDepKind::ConditionalInverse,
                 default,
-            }),
+            }
+        }),
         // !flag= - inverse equal
-        (
-            preceded('!', parse_use_flag()),
-            opt(parse_use_default()),
-            '=',
-        )
-            .map(|(flag, default, _)| UseDep {
+        (preceded('!', parse_use_flag), opt(parse_use_default), '=').map(|(flag, default, _)| {
+            UseDep {
                 flag,
                 kind: UseDepKind::EqualInverse,
                 default,
-            }),
+            }
+        }),
         // -flag - disabled
-        (preceded('-', parse_use_flag()), opt(parse_use_default())).map(|(flag, default)| UseDep {
+        (preceded('-', parse_use_flag), opt(parse_use_default)).map(|(flag, default)| UseDep {
             flag,
             kind: UseDepKind::Disabled,
             default,
         }),
         // flag? - conditional
-        (parse_use_flag(), opt(parse_use_default()), '?').map(|(flag, default, _)| UseDep {
+        (parse_use_flag, opt(parse_use_default), '?').map(|(flag, default, _)| UseDep {
             flag,
             kind: UseDepKind::Conditional,
             default,
         }),
         // flag= - equal
-        (parse_use_flag(), opt(parse_use_default()), '=').map(|(flag, default, _)| UseDep {
+        (parse_use_flag, opt(parse_use_default), '=').map(|(flag, default, _)| UseDep {
             flag,
             kind: UseDepKind::Equal,
             default,
         }),
         // flag - enabled
-        (parse_use_flag(), opt(parse_use_default())).map(|(flag, default)| UseDep {
+        (parse_use_flag, opt(parse_use_default)).map(|(flag, default)| UseDep {
             flag,
             kind: UseDepKind::Enabled,
             default,
         }),
     ))
+    .parse_next(input)
 }
 
 /// Parse USE dependencies (with brackets)
-pub(crate) fn parse_use_deps<'s>() -> impl Parser<&'s str, Vec<UseDep>, ErrMode<ContextError>> {
+pub(crate) fn parse_use_deps(input: &mut &str) -> ModalResult<Vec<UseDep>> {
     delimited(
         '[',
         cut_err(terminated(
-            separated(0.., parse_use_dep_item(), ','),
+            separated(0.., parse_use_dep_item, ','),
             opt(','),
         )),
         cut_err(']'),
     )
     .context(StrContext::Label("use deps"))
+    .parse_next(input)
 }
 
 #[cfg(test)]
@@ -279,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_use_deps_list() {
-        let deps = parse_use_deps().parse("[ssl,-debug,python?]").unwrap();
+        let deps = parse_use_deps.parse("[ssl,-debug,python?]").unwrap();
         assert_eq!(deps.len(), 3);
         assert_eq!(deps[0].flag, "ssl");
         assert_eq!(deps[1].flag, "debug");
@@ -291,7 +289,7 @@ mod tests {
     // Issue 1: Empty USE dep brackets []
     #[test]
     fn test_empty_use_deps() {
-        let deps = parse_use_deps().parse("[]").unwrap();
+        let deps = parse_use_deps.parse("[]").unwrap();
         assert!(deps.is_empty());
     }
 
@@ -320,7 +318,7 @@ mod tests {
     // Issue 4: Trailing comma in USE dep list
     #[test]
     fn test_use_deps_with_trailing_comma() {
-        let deps = parse_use_deps().parse("[introspection?,]").unwrap();
+        let deps = parse_use_deps.parse("[introspection?,]").unwrap();
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].flag, "introspection");
         assert_eq!(deps[0].kind, UseDepKind::Conditional);
