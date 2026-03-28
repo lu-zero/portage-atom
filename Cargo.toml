@@ -12,7 +12,7 @@ categories = ["parser-implementations", "development-tools"]
 
 [dependencies]
 gentoo-interner = "0.1.2"
-winnow = "0.7"
+winnow = { version = "1.0", features = ["ascii"] }
 thiserror = "2"
 
 [[example]]
