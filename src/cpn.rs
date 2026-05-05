@@ -16,8 +16,11 @@ use crate::error::{Error, Result};
 /// See [PMS 3.1](https://projects.gentoo.org/pms/9/pms.html#restrictions-upon-names)
 /// for category and package naming rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Cpn {
+    #[cfg_attr(feature = "builder", builder(into))]
     pub category: Interned<DefaultInterner>,
+    #[cfg_attr(feature = "builder", builder(into))]
     pub package: Interned<DefaultInterner>,
 }
 
@@ -229,5 +232,14 @@ mod tests {
         let cpn = Cpn::parse("dev-lang/rust").unwrap();
         let cpn2 = cpn;
         assert_eq!(cpn, cpn2);
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_cpn_builder() {
+        let cpn = Cpn::builder().category("dev-lang").package("rust").build();
+        assert_eq!(cpn.category, "dev-lang");
+        assert_eq!(cpn.package, "rust");
+        assert_eq!(cpn.to_string(), "dev-lang/rust");
     }
 }

@@ -10,10 +10,14 @@ repository = "https://github.com/lu-zero/portage-atom"
 keywords = ["gentoo", "portage", "parser", "pms"]
 categories = ["parser-implementations", "development-tools"]
 
+[features]
+builder = ["dep:bon"]
+
 [dependencies]
 gentoo-interner = "0.1.2"
 winnow = { version = "1.0", features = ["ascii"] }
 thiserror = "2"
+bon = { version = "3", optional = true }
 
 [[example]]
 name = "parse_atoms"
