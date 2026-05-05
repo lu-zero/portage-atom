@@ -43,8 +43,10 @@ impl fmt::Display for Blocker {
 /// See [PMS 8.3](https://projects.gentoo.org/pms/9/pms.html#package-dependency-specifications)
 /// for the dependency specification syntax.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Dep {
     /// Unversioned category/package name (e.g. `dev-lang/rust`).
+    #[cfg_attr(feature = "builder", builder(start_fn))]
     pub cpn: Cpn,
     /// Optional blocker prefix (`!` or `!!`).
     pub blocker: Option<Blocker>,
@@ -55,6 +57,7 @@ pub struct Dep {
     /// Optional USE flag constraints (e.g. `[ssl,-debug]`).
     pub use_deps: Option<Vec<UseDep>>,
     /// Optional repository name (e.g. `gentoo` from `::gentoo`).
+    #[cfg_attr(feature = "builder", builder(into))]
     pub repo: Option<Interned<DefaultInterner>>,
 }
 
@@ -336,5 +339,58 @@ mod tests {
         assert_eq!(use_deps.len(), 3);
 
         assert_eq!(dep.repo, Some(Interned::intern("gentoo")));
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_dep_builder_simple() {
+        let cpn = Cpn::new("dev-lang", "rust");
+        let dep = Dep::builder(cpn).build();
+        assert_eq!(dep.category(), "dev-lang");
+        assert_eq!(dep.package(), "rust");
+        assert!(dep.version.is_none());
+        assert!(dep.blocker.is_none());
+        assert_eq!(dep.to_string(), "dev-lang/rust");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_dep_builder_versioned() {
+        let cpn = Cpn::new("dev-lang", "rust");
+        let mut version = Version::new(&[1, 75, 0]);
+        version.op = Some(Operator::GreaterOrEqual);
+        let dep = Dep::builder(cpn).version(version).build();
+        assert!(dep.version.is_some());
+        assert_eq!(dep.to_string(), ">=dev-lang/rust-1.75.0");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_dep_builder_with_blocker_and_repo() {
+        let cpn = Cpn::new("dev-libs", "old");
+        let dep = Dep::builder(cpn)
+            .blocker(Blocker::Strong)
+            .repo("gentoo")
+            .build();
+        assert_eq!(dep.blocker, Some(Blocker::Strong));
+        assert_eq!(dep.repo, Some(Interned::intern("gentoo")));
+        assert_eq!(dep.to_string(), "!!dev-libs/old::gentoo");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_dep_builder_roundtrip() {
+        let original = Dep::parse(">=dev-lang/rust-1.75.0:0[ssl,-debug]::gentoo").unwrap();
+
+        let mut version = original.version.clone().unwrap();
+        version.op = Some(Operator::GreaterOrEqual);
+        let built = Dep::builder(original.cpn)
+            .version(version)
+            .slot_dep(original.slot_dep.clone().unwrap())
+            .use_deps(original.use_deps.clone().unwrap())
+            .repo("gentoo")
+            .build();
+
+        assert_eq!(original.to_string(), built.to_string());
     }
 }

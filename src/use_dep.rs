@@ -75,8 +75,10 @@ impl fmt::Display for UseDepKind {
 ///
 /// See [PMS 8.3.4](https://projects.gentoo.org/pms/9/pms.html#style-and-style-use-dependencies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct UseDep {
     /// The USE flag name (e.g. `ssl`, `debug`, `python_targets_python3_12`).
+    #[cfg_attr(feature = "builder", builder(into))]
     pub flag: Interned<DefaultInterner>,
     /// The kind of constraint this dependency expresses.
     pub kind: UseDepKind,
@@ -340,5 +342,19 @@ mod tests {
         assert!(UseDep::parse("@flag").is_err()); // @flag is invalid: flag starts with '@'
         assert!(UseDep::parse("-\u{40}flag").is_err()); // -@flag is invalid: flag starts with '@'
         assert!(UseDep::parse("-_flag").is_err()); // -_flag is invalid: flag starts with '_'
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_use_dep_builder() {
+        let dep = UseDep::builder()
+            .flag("ssl")
+            .kind(UseDepKind::Enabled)
+            .default(UseDefault::Enabled)
+            .build();
+        assert_eq!(dep.flag, "ssl");
+        assert_eq!(dep.kind, UseDepKind::Enabled);
+        assert_eq!(dep.default, Some(UseDefault::Enabled));
+        assert_eq!(dep.to_string(), "ssl(+)");
     }
 }

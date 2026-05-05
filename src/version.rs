@@ -110,6 +110,7 @@ impl FromStr for SuffixKind {
 ///
 /// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Suffix {
     /// The suffix type (`_alpha`, `_beta`, `_pre`, `_rc`, or `_p`).
     pub kind: SuffixKind,
@@ -216,23 +217,46 @@ impl fmt::Display for Operator {
 /// - **Glob suffix** — PMS allows `*` as wildcard for version components
 ///   (e.g., `1.2*` matches `1.2.3`, `1.2.4`, etc.) when used with `=` operator.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Version {
+    /// Dot-separated numeric components (e.g. `[1, 2, 3]` for `1.2.3`).
+    #[cfg_attr(feature = "builder", builder(start_fn))]
+    pub numbers: Vec<u64>,
     /// Version operator (set only inside a [`Dep`](crate::Dep)).
     pub op: Option<Operator>,
-    /// Dot-separated numeric components (e.g. `[1, 2, 3]` for `1.2.3`).
-    pub numbers: Vec<u64>,
     /// Optional single lowercase letter after the numeric components.
     pub letter: Option<char>,
     /// Zero or more version suffixes (`_alpha`, `_beta`, `_pre`, `_rc`, `_p`).
+    #[cfg_attr(feature = "builder", builder(default))]
     pub suffixes: Vec<Suffix>,
     /// Package revision; defaults to `0` (omitted from display).
+    #[cfg_attr(feature = "builder", builder(default))]
     pub revision: Revision,
     /// PMS glob suffix (`*`) for wildcard matching when used with `=` operator.
     /// When present, only the specified number of version components are used for comparison.
+    #[cfg_attr(feature = "builder", builder(default))]
     pub glob: bool,
 }
 
 impl Version {
+    /// Create a version from numeric components.
+    ///
+    /// `Version::new(&[1, 75, 0])` produces `1.75.0`.
+    pub fn new(numbers: &[u64]) -> Self {
+        debug_assert!(
+            !numbers.is_empty(),
+            "Version must have at least one numeric component per PMS 3.2"
+        );
+        Version {
+            op: None,
+            numbers: numbers.to_vec(),
+            letter: None,
+            suffixes: Vec::new(),
+            revision: Revision::default(),
+            glob: false,
+        }
+    }
+
     /// Parse version from string without operator
     pub fn parse(input: &str) -> Result<Self> {
         parse_version
@@ -592,5 +616,69 @@ mod tests {
         let long_component = "12345678901234567890"; // 20 digits
         let version = Version::parse(long_component).unwrap();
         assert_eq!(version.numbers[0], 12345678901234567890u64);
+    }
+
+    #[test]
+    fn test_version_new_simple() {
+        let v = Version::new(&[1, 75, 0]);
+        assert_eq!(v.numbers, vec![1, 75, 0]);
+        assert_eq!(v.letter, None);
+        assert!(v.suffixes.is_empty());
+        assert_eq!(v.revision.0, 0);
+        assert!(!v.glob);
+        assert_eq!(v.to_string(), "1.75.0");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_version_builder_full() {
+        let v = Version::builder(vec![1, 75, 0])
+            .letter('a')
+            .suffixes(vec![
+                Suffix {
+                    kind: SuffixKind::Rc,
+                    version: Some(1),
+                },
+                Suffix {
+                    kind: SuffixKind::P,
+                    version: Some(2),
+                },
+            ])
+            .revision(Revision(3))
+            .build();
+        assert_eq!(v.numbers, vec![1, 75, 0]);
+        assert_eq!(v.letter, Some('a'));
+        assert_eq!(v.suffixes.len(), 2);
+        assert_eq!(v.revision.0, 3);
+        assert_eq!(v.to_string(), "1.75.0a_rc1_p2-r3");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_version_builder_glob() {
+        let v = Version::builder(vec![1, 2]).glob(true).build();
+        assert!(v.glob);
+        assert_eq!(v.to_string(), "1.2*");
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_version_builder_roundtrip() {
+        let original = Version::parse("1.2.3a_rc1_p2-r5").unwrap();
+        let built = Version::builder(vec![1, 2, 3])
+            .letter('a')
+            .suffixes(vec![
+                Suffix {
+                    kind: SuffixKind::Rc,
+                    version: Some(1),
+                },
+                Suffix {
+                    kind: SuffixKind::P,
+                    version: Some(2),
+                },
+            ])
+            .revision(Revision(5))
+            .build();
+        assert_eq!(original, built);
     }
 }

@@ -55,3 +55,17 @@ pub use error::{Error, Result};
 pub use slot::{Slot, SlotDep, SlotOperator};
 pub use use_dep::{UseDefault, UseDep, UseDepKind};
 pub use version::{Operator, Revision, Suffix, SuffixKind, Version};
+
+// Re-export bon-derived builders when the feature is enabled
+#[cfg(feature = "builder")]
+pub use cpn::CpnBuilder;
+#[cfg(feature = "builder")]
+pub use cpv::CpvBuilder;
+#[cfg(feature = "builder")]
+pub use dep::DepBuilder;
+#[cfg(feature = "builder")]
+pub use slot::SlotBuilder;
+#[cfg(feature = "builder")]
+pub use use_dep::UseDepBuilder;
+#[cfg(feature = "builder")]
+pub use version::{SuffixBuilder, VersionBuilder};

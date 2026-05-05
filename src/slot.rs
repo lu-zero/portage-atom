@@ -38,10 +38,13 @@ impl fmt::Display for SlotOperator {
 ///
 /// See [PMS 7.2](https://projects.gentoo.org/pms/9/pms.html#mandatory-ebuilddefined-variables).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Slot {
     /// The slot name (e.g. `0`, `3.12`, `stable`).
+    #[cfg_attr(feature = "builder", builder(into))]
     pub slot: Interned<DefaultInterner>,
     /// Optional sub-slot for ABI tracking (e.g. `1.2` in `:0/1.2`).
+    #[cfg_attr(feature = "builder", builder(into))]
     pub subslot: Option<Interned<DefaultInterner>>,
 }
 
@@ -239,5 +242,14 @@ mod tests {
         assert!(SlotDep::parse("-slot").is_err());
         assert!(SlotDep::parse(".slot").is_err());
         assert!(SlotDep::parse("+slot").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_slot_builder() {
+        let slot = Slot::builder().slot("0").subslot("1.75").build();
+        assert_eq!(slot.slot, "0");
+        assert_eq!(slot.subslot, Some(Interned::intern("1.75")));
+        assert_eq!(slot.to_string(), "0/1.75");
     }
 }

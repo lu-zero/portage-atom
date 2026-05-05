@@ -23,6 +23,7 @@ use crate::version::{Version, parse_version};
 /// [PMS 3.3](https://projects.gentoo.org/pms/9/pms.html#version-comparison)
 /// for the version comparison algorithm.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Cpv {
     pub cpn: Cpn,
     pub version: Version,
@@ -143,5 +144,17 @@ mod tests {
 
         let cpv3 = Cpv::parse("dev-lang/rust-1.75.0-r1").unwrap();
         assert!(cpv1 < cpv3);
+    }
+
+    #[test]
+    #[cfg(feature = "builder")]
+    fn test_cpv_builder() {
+        let cpn = Cpn::new("dev-lang", "rust");
+        let version = Version::new(&[1, 75, 0]);
+        let cpv = Cpv::builder().cpn(cpn).version(version).build();
+        assert_eq!(cpv.cpn.category, "dev-lang");
+        assert_eq!(cpv.cpn.package, "rust");
+        assert_eq!(cpv.version.numbers, vec![1, 75, 0]);
+        assert_eq!(cpv.to_string(), "dev-lang/rust-1.75.0");
     }
 }
