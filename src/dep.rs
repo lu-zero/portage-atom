@@ -152,21 +152,23 @@ impl fmt::Display for Dep {
         write!(f, "{}", self.cpn)?;
 
         if let Some(version) = &self.version {
-            // Display version without operator (operator already shown above)
             write!(f, "-")?;
             for (i, num) in version.numbers.iter().enumerate() {
                 if i > 0 {
                     write!(f, ".")?;
                 }
-                write!(f, "{}", num)?;
+                write!(f, "{num}")?;
             }
             if let Some(letter) = version.letter {
-                write!(f, "{}", letter)?;
+                write!(f, "{letter}")?;
             }
             for suffix in &version.suffixes {
-                write!(f, "{}", suffix)?;
+                write!(f, "{suffix}")?;
             }
             write!(f, "{}", version.revision)?;
+            if version.glob {
+                write!(f, "*")?;
+            }
         }
 
         if let Some(slot) = &self.slot_dep {

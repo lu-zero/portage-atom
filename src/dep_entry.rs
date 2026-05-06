@@ -15,8 +15,9 @@ use crate::parsers::parse_ident_base;
 
 /// Structured dependency tree entry.
 ///
-/// Represents the three forms that appear in ebuild `*DEPEND` variables
-/// (PMS 8.2): bare atoms, USE-conditional groups, and `|| ()` any-of groups.
+/// Represents the forms that appear in ebuild `*DEPEND` variables
+/// (PMS 8.2): bare atoms, USE-conditional groups, all-of groups,
+/// and any-of / exactly-one-of / at-most-one-of groups.
 ///
 /// See [PMS 8.2](https://projects.gentoo.org/pms/9/pms.html#dependency-specification-format).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +33,11 @@ pub enum DepEntry {
         /// Dependencies guarded by this flag.
         children: Vec<DepEntry>,
     },
+    /// `( a b c )` — all of the children must be matched.
+    ///
+    /// A bare parenthesised group representing an all-of dependency
+    /// specification per [PMS 8.2.1](https://projects.gentoo.org/pms/9/pms.html#all-of-dependency-specifications).
+    AllOf(Vec<DepEntry>),
     /// `|| ( a b c )` — any one of the children satisfies the dependency.
     AnyOf(Vec<DepEntry>),
     /// `^^ ( a b c )` — exactly one child must be matched.
@@ -46,7 +52,7 @@ impl DepEntry {
     /// Accepts the format used in ebuild `*DEPEND` variables: whitespace-separated
     /// atoms, `|| ( ... )` any-of groups, `^^ ( ... )` exactly-one-of groups,
     /// `?? ( ... )` at-most-one-of groups, `use? ( ... )` conditional groups,
-    /// and bare `( ... )` all-of groups (flattened into the parent list).
+    /// and bare `( ... )` all-of groups.
     ///
     /// # Examples
     ///
@@ -81,6 +87,16 @@ impl fmt::Display for DepEntry {
                         write!(f, " ")?;
                     }
                     write!(f, "{child}")?;
+                }
+                write!(f, " )")
+            }
+            DepEntry::AllOf(entries) => {
+                write!(f, "( ")?;
+                for (i, entry) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{entry}")?;
                 }
                 write!(f, " )")
             }
@@ -127,41 +143,39 @@ pub(crate) fn parse_dep_string(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 
 /// Parse zero or more dependency entries separated by whitespace.
 ///
-/// Stops when it encounters `)` or end-of-input.  Bare parenthesized groups
-/// are flattened into the result via `fold`.
+/// Stops when it encounters `)` or end-of-input.
 fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
     repeat(0.., preceded(multispace0, parse_dep_entry))
-        .fold(Vec::new, |mut acc: Vec<DepEntry>, batch: Vec<DepEntry>| {
-            acc.extend(batch);
+        .fold(Vec::new, |mut acc: Vec<DepEntry>, entry: DepEntry| {
+            acc.push(entry);
             acc
         })
         .parse_next(input)
 }
 
-/// Parse a single dependency entry, returning one or more entries
-/// (bare parenthesized groups are flattened into multiple entries).
+/// Parse a single dependency entry.
 ///
 /// Uses `dispatch!(peek(any); ...)` to route on the first character:
 /// - `|` → any-of group (`|| ( ... )`)
 /// - `^` → exactly-one-of group (`^^ ( ... )`)
 /// - `?` → at-most-one-of group (`?? ( ... )`)
-/// - `(` → bare paren group (flattened)
+/// - `(` → all-of group (`( ... )`)
 /// - `>`, `<`, `~`, `=` → versioned atom (skip USE-conditional attempt)
 /// - anything else → try USE conditional first, fall back to atom
-fn parse_dep_entry(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
+fn parse_dep_entry(input: &mut &str) -> ModalResult<DepEntry> {
     dispatch! {peek(any);
-        '|' => parse_any_of.map(|e| vec![e]),
-        '^' => parse_exactly_one_of.map(|e| vec![e]),
-        '?' => parse_at_most_one_of.map(|e| vec![e]),
-        '(' => parse_paren_group,
+        '|' => parse_any_of,
+        '^' => parse_exactly_one_of,
+        '?' => parse_at_most_one_of,
+        '(' => parse_all_of,
         '>' | '<' | '~' | '=' => parse_dep
             .context(StrContext::Label("dependency atom"))
-            .map(|d| vec![DepEntry::Atom(d)]),
+            .map(DepEntry::Atom),
         _ => alt((
-            parse_use_conditional.map(|e| vec![e]),
+            parse_use_conditional,
             parse_dep
                 .context(StrContext::Label("dependency atom"))
-                .map(|d| vec![DepEntry::Atom(d)]),
+                .map(DepEntry::Atom),
         )),
     }
     .parse_next(input)
@@ -228,15 +242,16 @@ fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
     })
 }
 
-/// Parse `( entry* )` — bare parenthesized group, flattened.
+/// Parse `( entry* )` — all-of group.
 ///
 /// After consuming `(`, uses `cut_err` for the closing `)`.
-fn parse_paren_group(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
+fn parse_all_of(input: &mut &str) -> ModalResult<DepEntry> {
     delimited(
         '(',
         parse_dep_entries,
         cut_err((multispace0, ')')).context(StrContext::Label("closing ')'")),
     )
+    .map(DepEntry::AllOf)
     .parse_next(input)
 }
 
@@ -356,11 +371,38 @@ mod tests {
     }
 
     #[test]
-    fn all_of_flattened() {
+    fn all_of_group() {
         let entries = DepEntry::parse("( dev-libs/a dev-libs/b )").unwrap();
-        assert_eq!(entries.len(), 2);
-        assert!(matches!(&entries[0], DepEntry::Atom(dep) if dep.package() == "a"));
-        assert!(matches!(&entries[1], DepEntry::Atom(dep) if dep.package() == "b"));
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::AllOf(children) => {
+                assert_eq!(children.len(), 2);
+                assert!(matches!(&children[0], DepEntry::Atom(dep) if dep.package() == "a"));
+                assert!(matches!(&children[1], DepEntry::Atom(dep) if dep.package() == "b"));
+            }
+            _ => panic!("expected AllOf"),
+        }
+    }
+
+    #[test]
+    fn all_of_round_trip() {
+        let input = "( dev-libs/a dev-libs/b )";
+        let entries = DepEntry::parse(input).unwrap();
+        let displayed: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+        let rejoined = displayed.join(" ");
+        let reparsed = DepEntry::parse(&rejoined).unwrap();
+        assert_eq!(entries, reparsed);
+    }
+
+    #[test]
+    fn any_of_with_all_of_round_trip() {
+        let input = "|| ( ( dev-lang/python:3.14 dev-python/sphinx ) ( dev-lang/python:3.13 dev-python/sphinx ) )";
+        let entries = DepEntry::parse(input).unwrap();
+        let displayed: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+        let rejoined = displayed.join(" ");
+        assert_eq!(rejoined, input);
+        let reparsed = DepEntry::parse(&rejoined).unwrap();
+        assert_eq!(entries, reparsed);
     }
 
     #[test]
@@ -730,6 +772,7 @@ mod tests {
             suffixes: vec![],
             revision: Revision(0),
             glob: true,
+            raw: None,
         };
 
         let v1_2_3 = Version {
@@ -739,6 +782,7 @@ mod tests {
             suffixes: vec![],
             revision: Revision(0),
             glob: false,
+            raw: None,
         };
 
         let v1_2_4 = Version {
@@ -748,6 +792,7 @@ mod tests {
             suffixes: vec![],
             revision: Revision(0),
             glob: false,
+            raw: None,
         };
 
         let v1_3 = Version {
@@ -757,6 +802,7 @@ mod tests {
             suffixes: vec![],
             revision: Revision(0),
             glob: false,
+            raw: None,
         };
 
         // PMS glob matching: 1.2* should match 1.2.3 and 1.2.4

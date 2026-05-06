@@ -18,6 +18,11 @@ fn print_entries(entries: &[DepEntry], indent: usize) {
                 print_entries(children, indent + 1);
                 println!("{pad})");
             }
+            DepEntry::AllOf(children) => {
+                println!("{pad}(");
+                print_entries(children, indent + 1);
+                println!("{pad})");
+            }
             DepEntry::AnyOf(children) => {
                 println!("{pad}|| (");
                 print_entries(children, indent + 1);

@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
+use winnow::Parser;
 use winnow::ascii::digit1;
 use winnow::combinator::{alt, cut_err, opt, preceded, repeat, separated};
 use winnow::error::StrContext;
@@ -223,7 +225,7 @@ impl fmt::Display for Operator {
 ///   always sort below.
 /// - **Glob suffix** — PMS allows `*` as wildcard for version components
 ///   (e.g., `1.2*` matches `1.2.3`, `1.2.4`, etc.) when used with `=` operator.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Version {
     /// Dot-separated numeric components (e.g. `[1, 2, 3]` for `1.2.3`).
@@ -243,6 +245,36 @@ pub struct Version {
     /// When present, only the specified number of version components are used for comparison.
     #[cfg_attr(feature = "builder", builder(default))]
     pub glob: bool,
+    /// The version string exactly as parsed, preserving leading zeros
+    /// (e.g. `"26.04.0"` instead of the reconstructed `"26.4.0"`).
+    ///
+    /// `None` when constructed programmatically via [`Version::new`] or the builder.
+    #[cfg_attr(feature = "builder", builder(skip))]
+    pub raw: Option<String>,
+}
+
+impl PartialEq for Version {
+    fn eq(&self, other: &Self) -> bool {
+        self.numbers == other.numbers
+            && self.op == other.op
+            && self.letter == other.letter
+            && self.suffixes == other.suffixes
+            && self.revision == other.revision
+            && self.glob == other.glob
+    }
+}
+
+impl Eq for Version {}
+
+impl Hash for Version {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.numbers.hash(state);
+        self.op.hash(state);
+        self.letter.hash(state);
+        self.suffixes.hash(state);
+        self.revision.hash(state);
+        self.glob.hash(state);
+    }
 }
 
 impl Version {
@@ -267,6 +299,7 @@ impl Version {
             suffixes: Vec::new(),
             revision: Revision::default(),
             glob: false,
+            raw: None,
         }
     }
 
@@ -291,6 +324,7 @@ impl Version {
             suffixes: self.suffixes.clone(),
             revision: Revision::default(),
             glob: false,
+            raw: None,
         }
     }
 
@@ -306,6 +340,34 @@ impl Version {
             suffixes: Vec::new(),
             revision: Revision::default(),
             glob: false,
+            raw: None,
+        }
+    }
+
+    /// Format the version portion (numbers, letter, suffixes, revision, glob)
+    /// without the operator.  Uses the raw string when available to preserve
+    /// leading zeros in numeric components.
+    pub(crate) fn fmt_version(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref raw) = self.raw {
+            write!(f, "{raw}")
+        } else {
+            for (i, num) in self.numbers.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ".")?;
+                }
+                write!(f, "{num}")?;
+            }
+            if let Some(letter) = self.letter {
+                write!(f, "{letter}")?;
+            }
+            for suffix in &self.suffixes {
+                write!(f, "{suffix}")?;
+            }
+            write!(f, "{}", self.revision)?;
+            if self.glob {
+                write!(f, "*")?;
+            }
+            Ok(())
         }
     }
 }
@@ -313,31 +375,9 @@ impl Version {
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(op) = &self.op {
-            write!(f, "{}", op)?;
+            write!(f, "{op}")?;
         }
-
-        for (i, num) in self.numbers.iter().enumerate() {
-            if i > 0 {
-                write!(f, ".")?;
-            }
-            write!(f, "{}", num)?;
-        }
-
-        if let Some(letter) = self.letter {
-            write!(f, "{}", letter)?;
-        }
-
-        for suffix in &self.suffixes {
-            write!(f, "{}", suffix)?;
-        }
-
-        write!(f, "{}", self.revision)?;
-
-        if self.glob {
-            write!(f, "*")?;
-        }
-
-        Ok(())
+        self.fmt_version(f)
     }
 }
 
@@ -486,16 +526,20 @@ pub(crate) fn parse_version(input: &mut &str) -> ModalResult<Version> {
         opt(parse_letter),
         repeat(0.., parse_suffix),
         opt(parse_revision),
-        opt('*'), // Handle PMS glob suffix for version wildcard matching
+        opt('*'),
     )
-        .map(|(numbers, letter, suffixes, revision, has_glob)| Version {
-            op: None,
-            numbers,
-            letter,
-            suffixes,
-            revision: revision.unwrap_or_default(),
-            glob: has_glob.is_some(),
-        })
+        .with_taken()
+        .map(
+            |((numbers, letter, suffixes, revision, has_glob), raw)| Version {
+                op: None,
+                numbers,
+                letter,
+                suffixes,
+                revision: revision.unwrap_or_default(),
+                glob: has_glob.is_some(),
+                raw: Some(raw.to_string()),
+            },
+        )
         .context(StrContext::Label("version"))
         .parse_next(input)
 }
@@ -701,5 +745,51 @@ mod tests {
             .revision(Revision(5))
             .build();
         assert_eq!(original, built);
+    }
+
+    #[test]
+    fn test_raw_preserves_leading_zeros() {
+        let v = Version::parse("26.04.0").unwrap();
+        assert_eq!(v.numbers, vec![26, 4, 0]);
+        assert_eq!(v.raw.as_deref(), Some("26.04.0"));
+        assert_eq!(v.to_string(), "26.04.0");
+    }
+
+    #[test]
+    fn test_raw_in_dep_displays_canonical() {
+        use crate::dep::Dep;
+
+        let dep = Dep::parse(">=app-accessibility/kontrast-26.04.0").unwrap();
+        assert_eq!(dep.to_string(), ">=app-accessibility/kontrast-26.4.0");
+    }
+
+    #[test]
+    fn test_raw_in_cpv_round_trip() {
+        use crate::cpv::Cpv;
+
+        let cpv = Cpv::parse("app-accessibility/kontrast-26.04.0").unwrap();
+        assert_eq!(cpv.to_string(), "app-accessibility/kontrast-26.04.0");
+    }
+
+    #[test]
+    fn test_raw_none_for_programmatic() {
+        let v = Version::new(&[1, 2, 3]);
+        assert!(v.raw.is_none());
+        assert_eq!(v.to_string(), "1.2.3");
+    }
+
+    #[test]
+    fn test_raw_with_suffix_and_revision() {
+        let v = Version::parse("1.2.3a_rc1_p2-r5").unwrap();
+        assert_eq!(v.raw.as_deref(), Some("1.2.3a_rc1_p2-r5"));
+        assert_eq!(v.to_string(), "1.2.3a_rc1_p2-r5");
+    }
+
+    #[test]
+    fn test_raw_glob_preserved() {
+        use crate::dep::Dep;
+
+        let dep = Dep::parse("=dev-util/nvidia-cuda-toolkit-11*").unwrap();
+        assert_eq!(dep.to_string(), "=dev-util/nvidia-cuda-toolkit-11*");
     }
 }
