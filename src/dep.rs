@@ -38,31 +38,62 @@ impl fmt::Display for Blocker {
 
 /// Full dependency atom
 ///
-/// Represents full dependency atoms like `>=dev-lang/rust-1.75.0:0[ssl]::gentoo`.
+/// Represents a complete dependency atom as it appears in ebuild `*DEPEND`
+/// variables, e.g. `>=dev-lang/rust-1.75.0:0[ssl]::gentoo`.
+///
+/// The general form is `[!|!!][op]category/package[-ver][:slot][use][::repo]`.
 ///
 /// See [PMS 8.3](https://projects.gentoo.org/pms/9/pms.html#package-dependency-specifications)
-/// for the dependency specification syntax.
+/// for the full specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Dep {
-    /// Unversioned category/package name (e.g. `dev-lang/rust`).
+    /// The unversioned category/package name (e.g. `dev-lang/rust`).
+    ///
+    /// See [`Cpn`] and [PMS 3.1].
+    ///
+    /// [PMS 3.1]: https://projects.gentoo.org/pms/9/pms.html#restrictions-upon-names
     #[cfg_attr(feature = "builder", builder(start_fn))]
     pub cpn: Cpn,
-    /// Optional blocker prefix (`!` or `!!`).
+    /// Optional blocker prefix.
+    ///
+    /// `!` is a weak blocker; `!!` is a strong blocker.
+    /// See [PMS 8.3.2].
+    ///
+    /// [PMS 8.3.2]: https://projects.gentoo.org/pms/9/pms.html#block-operator
     pub blocker: Option<Blocker>,
-    /// Optional version constraint with operator (e.g. `>=1.75.0-r1`).
+    /// Optional version constraint with its comparison operator.
+    ///
+    /// The [`Version::op`] field holds the operator (`>=`, `=`, `~`, etc.).
+    /// See [PMS 8.3.1].
+    ///
+    /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub version: Option<Version>,
-    /// Optional slot dependency (e.g. `:0/1.2=`).
+    /// Optional slot dependency (the portion after `:`).
+    ///
+    /// See [PMS 8.3.3].
+    ///
+    /// [PMS 8.3.3]: https://projects.gentoo.org/pms/9/pms.html#slot-dependencies
     pub slot_dep: Option<SlotDep>,
-    /// Optional USE flag constraints (e.g. `[ssl,-debug]`).
+    /// Optional USE flag constraints (the bracketed portion).
+    ///
+    /// See [PMS 8.3.4].
+    ///
+    /// [PMS 8.3.4]: https://projects.gentoo.org/pms/9/pms.html#style-and-style-use-dependencies
     pub use_deps: Option<Vec<UseDep>>,
-    /// Optional repository name (e.g. `gentoo` from `::gentoo`).
+    /// Optional repository name (after `::`, e.g. `gentoo`).
+    ///
+    /// See [PMS 8.3.5].
+    ///
+    /// [PMS 8.3.5]: https://projects.gentoo.org/pms/9/pms.html#repository-dependencies
     #[cfg_attr(feature = "builder", builder(into))]
     pub repo: Option<Interned<DefaultInterner>>,
 }
 
 impl Dep {
-    /// Create new dependency from cpn
+    /// Create a minimal dependency from a [`Cpn`].
+    ///
+    /// All optional fields default to `None`.
     pub fn new(cpn: Cpn) -> Self {
         Dep {
             cpn,
@@ -74,29 +105,33 @@ impl Dep {
         }
     }
 
-    /// Parse from string
+    /// Parse a full dependency atom string.
+    ///
+    /// Returns an error if the string does not conform to the PMS format.
     pub fn parse(input: &str) -> Result<Self> {
         parse_dep
             .parse(input)
             .map_err(|e| Error::InvalidDep(format!("{}: {}", input, e)))
     }
 
-    /// Try to create from string (alias for parse)
+    /// Try to create from a string.
+    ///
+    /// Alias for [`Dep::parse`].
     pub fn try_new(s: &str) -> Result<Self> {
         Self::parse(s)
     }
 
-    /// Get the category string
+    /// The category portion of the atom (e.g. `dev-lang`).
     pub fn category(&self) -> &str {
         &self.cpn.category
     }
 
-    /// Get the package name string
+    /// The package name portion of the atom (e.g. `rust`).
     pub fn package(&self) -> &str {
         &self.cpn.package
     }
 
-    /// Convert to Cpv if versioned
+    /// Build a [`Cpv`] from this dependency, if it carries a version.
     pub fn cpv(&self) -> Option<Cpv> {
         self.version.as_ref().map(|v| Cpv::new(self.cpn, v.clone()))
     }

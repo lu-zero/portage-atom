@@ -49,6 +49,9 @@ pub struct Slot {
 }
 
 impl Slot {
+    /// Create a new slot without a sub-slot.
+    ///
+    /// The value is interned automatically.
     pub fn new(slot: impl AsRef<str>) -> Self {
         Slot {
             slot: Interned::intern(slot.as_ref()),
@@ -56,6 +59,9 @@ impl Slot {
         }
     }
 
+    /// Create a new slot with a sub-slot.
+    ///
+    /// Both values are interned automatically.
     pub fn with_subslot(slot: impl AsRef<str>, subslot: impl AsRef<str>) -> Self {
         Slot {
             slot: Interned::intern(slot.as_ref()),
@@ -83,9 +89,15 @@ impl fmt::Display for Slot {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SlotDep {
     /// A named slot with optional sub-slot and optional operator,
-    /// e.g. `:0`, `:0/1.2`, `:0=`.
+    /// e.g. `0`, `0/1.2`, `0=`.
     Slot {
+        /// The slot and optional sub-slot (e.g. `0`, `0/1.2`).
+        /// `None` only when a bare operator is present (e.g. `:=`).
         slot: Option<Slot>,
+        /// The slot operator (`=` for rebuild-on-change, `*` for any-slot).
+        /// See [PMS 8.3.3].
+        ///
+        /// [PMS 8.3.3]: https://projects.gentoo.org/pms/9/pms.html#slot-dependencies
         op: Option<SlotOperator>,
     },
     /// A bare operator without a named slot (`:=` or `:*`).
@@ -93,7 +105,9 @@ pub enum SlotDep {
 }
 
 impl SlotDep {
-    /// Parse from string (without leading :)
+    /// Parse the slot dependency portion of an atom (without the leading `:`).
+    ///
+    /// Accepts forms like `0`, `0/1.2`, `0=`, `=`, `*`.
     pub fn parse(input: &str) -> Result<Self> {
         parse_slot_dep
             .parse(input)
