@@ -14,9 +14,9 @@ use crate::version::{Version, parse_version};
 
 /// Category/Package/Version (Cpv)
 ///
-/// Represents versioned package atoms like `dev-lang/rust-1.75.0`.
-/// The version is separated from the package name at the last hyphen
-/// followed by a digit.
+/// A versioned package atom — a [`Cpn`] paired with a [`Version`], such as
+/// `dev-lang/rust-1.75.0`. The version is separated from the package name at
+/// the **last** hyphen followed by a digit (per PMS).
 ///
 /// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications)
 /// for the version syntax and
@@ -25,24 +25,35 @@ use crate::version::{Version, parse_version};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Cpv {
+    /// The unversioned category/package name.
     pub cpn: Cpn,
+    /// The version component (e.g. `1.75.0`, `3.11.0_rc2_p1-r1`).
+    ///
+    /// See [`Version`] and [PMS 3.2] for the full version format.
+    ///
+    /// [PMS 3.2]: https://projects.gentoo.org/pms/9/pms.html#version-specifications
     pub version: Version,
 }
 
 impl Cpv {
-    /// Create a new Cpv
+    /// Create a new Cpv from a [`Cpn`] and a [`Version`].
     pub fn new(cpn: Cpn, version: Version) -> Self {
         Cpv { cpn, version }
     }
 
-    /// Parse from string
+    /// Parse a `category/package-version` string into a [`Cpv`].
+    ///
+    /// Returns an error if the string does not conform to the PMS format or
+    /// naming rules.
     pub fn parse(input: &str) -> Result<Self> {
         parse_cpv
             .parse(input)
             .map_err(|e| Error::InvalidCpv(format!("{}: {}", input, e)))
     }
 
-    /// Try to create from string (alias for parse)
+    /// Try to create from a string.
+    ///
+    /// Alias for [`Cpv::parse`].
     pub fn try_new(s: &str) -> Result<Self> {
         Self::parse(s)
     }

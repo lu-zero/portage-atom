@@ -88,6 +88,9 @@ pub struct UseDep {
 }
 
 impl UseDep {
+    /// Create a new USE dependency without a default annotation.
+    ///
+    /// The flag name is interned automatically.
     pub fn new(flag: impl AsRef<str>, kind: UseDepKind) -> Self {
         UseDep {
             flag: Interned::intern(flag.as_ref()),
@@ -96,6 +99,9 @@ impl UseDep {
         }
     }
 
+    /// Create a new USE dependency with a default annotation (`(+)` or `(-)`).
+    ///
+    /// The flag name is interned automatically.
     pub fn with_default(flag: impl AsRef<str>, kind: UseDepKind, default: UseDefault) -> Self {
         UseDep {
             flag: Interned::intern(flag.as_ref()),
@@ -104,7 +110,9 @@ impl UseDep {
         }
     }
 
-    /// Parse single USE dependency (without brackets)
+    /// Parse a single USE dependency (without surrounding brackets).
+    ///
+    /// Accepts forms like `ssl`, `-debug`, `python?`, `!flag=`, `ssl(+)`.
     pub fn parse(input: &str) -> Result<Self> {
         parse_use_dep_item
             .parse(input)

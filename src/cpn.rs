@@ -11,21 +11,42 @@ use crate::error::{Error, Result};
 
 /// Category/Package Name (Cpn)
 ///
-/// Represents unversioned package atoms like `dev-lang/rust`.
+/// An unversioned package atom — the combination of a category and a package
+/// name, separated by a forward slash (e.g. `dev-lang/rust`).
 ///
 /// See [PMS 3.1](https://projects.gentoo.org/pms/9/pms.html#restrictions-upon-names)
-/// for category and package naming rules.
+/// for the naming rules that apply to categories ([PMS 3.1.1]) and packages
+/// ([PMS 3.1.2]).
+///
+/// [PMS 3.1.1]: https://projects.gentoo.org/pms/9/pms.html#category-names
+/// [PMS 3.1.2]: https://projects.gentoo.org/pms/9/pms.html#package-names
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Cpn {
+    /// The category portion (e.g. `dev-lang`, `app-misc`).
+    ///
+    /// Must begin with an alphanumeric or underscore and may contain
+    /// `[A-Za-z0-9+_.-]`. See [PMS 3.1.1].
+    ///
+    /// [PMS 3.1.1]: https://projects.gentoo.org/pms/9/pms.html#category-names
     #[cfg_attr(feature = "builder", builder(into))]
     pub category: Interned<DefaultInterner>,
+    /// The package name portion (e.g. `rust`, `python`).
+    ///
+    /// Must begin with an alphanumeric or underscore and may contain
+    /// `[A-Za-z0-9+_-.]`. The name must not end with a hyphen followed
+    /// by something that matches the version syntax. See [PMS 3.1.2].
+    ///
+    /// [PMS 3.1.2]: https://projects.gentoo.org/pms/9/pms.html#package-names
     #[cfg_attr(feature = "builder", builder(into))]
     pub package: Interned<DefaultInterner>,
 }
 
 impl Cpn {
-    /// Create a new Cpn from strings
+    /// Create a new Cpn from category and package strings.
+    ///
+    /// The values are interned automatically. This does **not** validate that
+    /// the strings conform to PMS naming rules; use [`Cpn::parse`] for that.
     pub fn new(category: impl AsRef<str>, package: impl AsRef<str>) -> Self {
         Cpn {
             category: Interned::intern(category.as_ref()),
@@ -33,14 +54,19 @@ impl Cpn {
         }
     }
 
-    /// Parse from string
+    /// Parse a `category/package` string into a [`Cpn`].
+    ///
+    /// Returns an error if the string does not conform to the PMS category
+    /// and package naming rules.
     pub fn parse(input: &str) -> Result<Self> {
         parse_cpn
             .parse(input)
             .map_err(|e| Error::InvalidCpn(format!("{}: {}", input, e)))
     }
 
-    /// Try to create from string (alias for parse)
+    /// Try to create from a string.
+    ///
+    /// Alias for [`Cpn::parse`].
     pub fn try_new(s: &str) -> Result<Self> {
         Self::parse(s)
     }

@@ -17,7 +17,11 @@ use crate::error::{Error, Result};
 ///
 /// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct Revision(pub u64);
+pub struct Revision(
+    /// The revision number (e.g. `1` for `-r1`, `2` for `-r2`).
+    /// `0` means no revision (omitted from display).
+    pub u64,
+);
 
 impl fmt::Display for Revision {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -103,18 +107,21 @@ impl FromStr for SuffixKind {
     }
 }
 
-/// A version suffix with optional numeric qualifier
+/// A version suffix with an optional numeric qualifier.
 ///
-/// Represents one `_alpha`, `_beta`, `_pre`, `_rc`, or `_p` segment,
+/// Represents a single `_alpha`, `_beta`, `_pre`, `_rc`, or `_p` segment,
 /// optionally followed by a number (e.g. `_rc2`, `_p1`).
 ///
-/// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications).
+/// See [PMS 3.2](https://projects.gentoo.org/pms/9/pms.html#version-specifications)
+/// and [Algorithm 3.1](https://projects.gentoo.org/pms/9/pms.html#version-comparison)
+/// for the ordering rules.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Suffix {
-    /// The suffix type (`_alpha`, `_beta`, `_pre`, `_rc`, or `_p`).
+    /// The suffix kind (`_alpha`, `_beta`, `_pre`, `_rc`, or `_p`).
     pub kind: SuffixKind,
-    /// Optional numeric qualifier (e.g. `2` in `_rc2`).
+    /// Optional numeric qualifier (e.g. `2` in `_rc2`, absent in `_rc`).
+    /// When absent, the implicit value is `0`.
     pub version: Option<u64>,
 }
 
@@ -239,9 +246,15 @@ pub struct Version {
 }
 
 impl Version {
-    /// Create a version from numeric components.
+    /// Create a version from its dot-separated numeric components.
     ///
-    /// `Version::new(&[1, 75, 0])` produces `1.75.0`.
+    /// `Version::new(&[1, 75, 0])` produces `1.75.0`. All optional fields
+    /// (letter, suffixes, revision, glob) default to their zero values.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `numbers` is non-empty (PMS 3.2 requires at least
+    /// one numeric component).
     pub fn new(numbers: &[u64]) -> Self {
         debug_assert!(
             !numbers.is_empty(),
@@ -257,14 +270,19 @@ impl Version {
         }
     }
 
-    /// Parse version from string without operator
+    /// Parse a version string (without a leading operator).
+    ///
+    /// Accepts forms like `1.2.3`, `1.2.3a_rc1_p2-r5`, `1.2*`.
     pub fn parse(input: &str) -> Result<Self> {
         parse_version
             .parse(input)
             .map_err(|e| Error::InvalidVersion(format!("{}: {}", input, e)))
     }
 
-    /// Base version without revision for ~ operator comparison
+    /// Return the version without its revision, for `~` (approximate)
+    /// comparison per [PMS 8.3.1].
+    ///
+    /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub fn base(&self) -> Self {
         Version {
             op: None,
@@ -276,7 +294,10 @@ impl Version {
         }
     }
 
-    /// Check if version has no suffixes (for * glob matching)
+    /// Return the version stripped of suffixes and revision, for `*` glob
+    /// comparison per [PMS 8.3.1].
+    ///
+    /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub fn without_suffix(&self) -> Self {
         Version {
             op: None,
