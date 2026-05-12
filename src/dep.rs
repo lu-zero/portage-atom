@@ -45,7 +45,7 @@ impl fmt::Display for Blocker {
 ///
 /// See [PMS 8.3](https://projects.gentoo.org/pms/9/pms.html#package-dependency-specifications)
 /// for the full specification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Dep {
     /// The unversioned category/package name (e.g. `dev-lang/rust`).

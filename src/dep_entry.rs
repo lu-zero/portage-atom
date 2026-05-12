@@ -20,7 +20,7 @@ use crate::parsers::parse_ident_base;
 /// and any-of / exactly-one-of / at-most-one-of groups.
 ///
 /// See [PMS 8.2](https://projects.gentoo.org/pms/9/pms.html#dependency-specification-format).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DepEntry {
     /// A single dependency atom.
     Atom(Dep),
