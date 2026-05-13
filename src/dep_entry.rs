@@ -151,31 +151,39 @@ fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
         .parse_next(input)
 }
 
-/// Returns true if the remaining input looks like a USE-conditional
-/// (`[!]flag?`) rather than a plain dependency atom.
+/// Quick lookahead: returns `true` when the remaining input is a USE-conditional
+/// (`flag?` / `!flag?`) rather than a dependency atom.
 ///
-/// USE-conditionals are a single identifier token followed by `?`.
-/// Dep atoms always contain `/` (category separator) after the first token,
-/// or start with `!` followed by another `!` (strong blocker) or a category.
-fn looks_like_use_conditional(input: &str) -> bool {
+/// PMS 8.2: USE-conditionals are `<flag>?` or `!<flag>?`. Dependency atoms are
+/// `<cat>/<pkg>...` or `!<cat>/<pkg>...` / `!!<cat>/<pkg>...`.  After the
+/// optional `!` prefix, the first identifier token is followed by `?` in a
+/// USE-conditional but `/` in an atom — so we only need to scan as far as the
+/// first non-identifier byte.
+fn is_use_conditional(input: &str) -> bool {
     let bytes = input.as_bytes();
     let mut i = 0;
 
-    if i < bytes.len() && bytes[i] == b'!' {
+    // Skip one optional `!` (negated USE conditional like `!flag?`).
+    // Two `!`s (`!!`) is always a strong blocker, never a USE conditional.
+    if bytes.first() == Some(&b'!') {
         i += 1;
-        if i < bytes.len() && bytes[i] == b'!' {
+        if bytes.get(i) == Some(&b'!') {
             return false;
         }
     }
 
+    // Scan the identifier token (PMS USE flag names: [A-Za-z0-9_+-]).
     let start = i;
-    while i < bytes.len()
-        && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'+' | b'-'))
-    {
-        i += 1;
+    while let Some(&b) = bytes.get(i) {
+        if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'-') {
+            i += 1;
+        } else {
+            break;
+        }
     }
 
-    i > start && i < bytes.len() && bytes[i] == b'?'
+    // Must have consumed at least one char and the next byte must be `?`.
+    i > start && bytes.get(i) == Some(&b'?')
 }
 
 /// Parse a single dependency entry.
@@ -202,7 +210,7 @@ fn parse_dep_entry(input: &mut &str) -> ModalResult<DepEntry> {
 }
 
 fn dispatch_dep_entry_fallback(input: &mut &str) -> ModalResult<DepEntry> {
-    if looks_like_use_conditional(input) {
+    if is_use_conditional(input) {
         parse_use_conditional.parse_next(input)
     } else {
         parse_dep
