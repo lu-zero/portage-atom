@@ -437,4 +437,61 @@ mod tests {
 
         assert_eq!(original.to_string(), built.to_string());
     }
+
+    // --- PMS 8.3.1 operator tests ---
+
+    #[test]
+    fn test_all_operators() {
+        let cases = [
+            ("<dev-libs/a-1.0", Operator::Less),
+            ("<=dev-libs/a-1.0", Operator::LessOrEqual),
+            ("=dev-libs/a-1.0", Operator::Equal),
+            ("~dev-libs/a-1.0", Operator::Approximate),
+            (">=dev-libs/a-1.0", Operator::GreaterOrEqual),
+            (">dev-libs/a-1.0", Operator::Greater),
+        ];
+        for (input, expected_op) in cases {
+            let dep = Dep::parse(input).unwrap();
+            let v = dep.version.as_ref().unwrap();
+            assert_eq!(v.op, Some(expected_op), "operator mismatch for: {input}");
+            assert_eq!(dep.to_string(), input, "round-trip failed for: {input}");
+        }
+    }
+
+    #[test]
+    fn test_approximate_operator() {
+        // PMS 8.3.1: ~ ignores revision
+        let dep = Dep::parse("~dev-lang/rust-1.75.0").unwrap();
+        let v = dep.version.as_ref().unwrap();
+        assert_eq!(v.op, Some(Operator::Approximate));
+        assert_eq!(v.numbers, vec![1, 75, 0]);
+    }
+
+    #[test]
+    fn test_glob_with_equal() {
+        // PMS 8.3.1: glob (*) only valid with = operator
+        assert!(Dep::parse("=dev-libs/a-1*").is_ok());
+        // TODO: PMS says "An asterisk used with any other operator is illegal"
+        // but we currently don't validate this at parse time.
+    }
+
+    #[test]
+    fn test_dep_display_round_trip() {
+        let inputs = [
+            "dev-lang/rust",
+            "!dev-libs/old",
+            "!!dev-libs/old",
+            ">=dev-lang/rust-1.75.0",
+            "=dev-libs/a-11*",
+            "dev-lang/rust:0",
+            "dev-lang/rust:0/1.75",
+            "dev-lang/rust[ssl]",
+            "dev-lang/rust::gentoo",
+            ">=dev-lang/rust-1.75.0:0[ssl]::gentoo",
+        ];
+        for input in inputs {
+            let dep = Dep::parse(input).unwrap();
+            assert_eq!(dep.to_string(), input, "round-trip failed for: {input}");
+        }
+    }
 }

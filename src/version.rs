@@ -813,4 +813,136 @@ mod tests {
         let dep = Dep::parse("=dev-util/nvidia-cuda-toolkit-11*").unwrap();
         assert_eq!(dep.to_string(), "=dev-util/nvidia-cuda-toolkit-11*");
     }
+
+    // --- PMS 3.2 / Algorithm 3.1 compliance tests ---
+
+    #[test]
+    fn test_version_single_component() {
+        // PMS 3.2: "an unsigned integer, followed by zero or more dot-prefixed unsigned integers"
+        let v = Version::parse("1").unwrap();
+        assert_eq!(v.numbers, vec![1]);
+        assert_eq!(v.to_string(), "1");
+    }
+
+    #[test]
+    fn test_version_letter_ordering() {
+        // PMS Algorithm 3.1: letter suffixes compared after numeric components
+        let v1 = Version::parse("1.2").unwrap();
+        let v2 = Version::parse("1.2a").unwrap();
+        let v3 = Version::parse("1.2b").unwrap();
+        assert!(v1 < v2);
+        assert!(v2 < v3);
+    }
+
+    #[test]
+    fn test_version_suffix_ordering() {
+        // PMS Algorithm 3.1: _alpha < _beta < _pre < _rc < (no suffix) < _p
+        let alpha = Version::parse("1.0_alpha").unwrap();
+        let beta = Version::parse("1.0_beta").unwrap();
+        let pre = Version::parse("1.0_pre").unwrap();
+        let rc = Version::parse("1.0_rc").unwrap();
+        let base = Version::parse("1.0").unwrap();
+        let p = Version::parse("1.0_p").unwrap();
+
+        assert!(alpha < beta);
+        assert!(beta < pre);
+        assert!(pre < rc);
+        assert!(rc < base);
+        assert!(base < p);
+    }
+
+    #[test]
+    fn test_version_suffix_with_number_ordering() {
+        // PMS: suffixes with numbers compared numerically
+        assert!(Version::parse("1.0_alpha1").unwrap() < Version::parse("1.0_alpha2").unwrap());
+        assert!(Version::parse("1.0_rc1").unwrap() < Version::parse("1.0_rc2").unwrap());
+        assert!(Version::parse("1.0_p1").unwrap() < Version::parse("1.0_p2").unwrap());
+        // Absent number is 0
+        assert!(Version::parse("1.0_alpha").unwrap() < Version::parse("1.0_alpha1").unwrap());
+    }
+
+    #[test]
+    fn test_version_revision_ordering() {
+        // PMS: revision compared after everything else
+        let v0 = Version::parse("1.0").unwrap();
+        let v1 = Version::parse("1.0-r1").unwrap();
+        let v2 = Version::parse("1.0-r2").unwrap();
+        assert!(v0 < v1);
+        assert!(v1 < v2);
+    }
+
+    #[test]
+    fn test_version_full_ordering_chain() {
+        // Algorithm 3.1: numeric → letter → suffixes → revision
+        // _p sorts above base, so 1.0_p1 > 1.0-r1 (suffixes compared before revision)
+        let versions: Vec<Version> = [
+            "1.0_alpha",
+            "1.0_alpha1",
+            "1.0_beta",
+            "1.0_pre",
+            "1.0_rc1",
+            "1.0_rc2",
+            "1.0",
+            "1.0-r1",
+            "1.0-r2",
+            "1.0_p",
+            "1.0_p1",
+            "1.0a",
+            "1.0a-r1",
+            "1.0a_p",
+            "1.0a_p1",
+            "1.0b",
+        ]
+        .iter()
+        .map(|s| Version::parse(s).unwrap())
+        .collect();
+
+        for i in 0..versions.len() - 1 {
+            assert!(
+                versions[i] < versions[i + 1],
+                "expected {} < {}",
+                versions[i],
+                versions[i + 1],
+            );
+        }
+    }
+
+    #[test]
+    fn test_version_unequal_component_count() {
+        // PMS: missing components treated as 0
+        assert!(Version::parse("1.0").unwrap() < Version::parse("1.0.1").unwrap());
+        // Ord treats them as equal but Eq does not (numbers vectors differ)
+        let v1 = Version::parse("1").unwrap();
+        let v10 = Version::parse("1.0").unwrap();
+        assert!(v1.cmp(&v10) == Ordering::Equal, "Ord: 1 == 1.0");
+    }
+
+    #[test]
+    fn test_version_display_round_trip() {
+        let inputs = [
+            "1",
+            "1.2",
+            "1.2.3",
+            "1.2.3a",
+            "1.2.3_alpha",
+            "1.2.3_alpha4",
+            "1.2.3a_rc1_p2-r5",
+            "1.2.3-r0",
+            "26.04.0",
+        ];
+        for input in inputs {
+            let v = Version::parse(input).unwrap();
+            assert_eq!(v.to_string(), input, "round-trip failed for: {input}");
+        }
+    }
+
+    #[test]
+    fn test_operator_display() {
+        assert_eq!(Operator::Less.to_string(), "<");
+        assert_eq!(Operator::LessOrEqual.to_string(), "<=");
+        assert_eq!(Operator::Equal.to_string(), "=");
+        assert_eq!(Operator::Approximate.to_string(), "~");
+        assert_eq!(Operator::GreaterOrEqual.to_string(), ">=");
+        assert_eq!(Operator::Greater.to_string(), ">");
+    }
 }

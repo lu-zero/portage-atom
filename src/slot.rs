@@ -266,4 +266,56 @@ mod tests {
         assert_eq!(slot.subslot, Some(Interned::intern("1.75")));
         assert_eq!(slot.to_string(), "0/1.75");
     }
+
+    // --- PMS 8.3.3 compliance tests ---
+
+    #[test]
+    fn test_bare_slot_operators() {
+        // := and :* (no named slot)
+        let dep = SlotDep::parse("=").unwrap();
+        assert_eq!(dep, SlotDep::Operator(SlotOperator::Equal));
+
+        let dep = SlotDep::parse("*").unwrap();
+        assert_eq!(dep, SlotDep::Operator(SlotOperator::Star));
+    }
+
+    #[test]
+    fn test_named_slot_with_operator() {
+        // PMS 8.3.3: slot= (named slot with = operator)
+        let dep = SlotDep::parse("0=").unwrap();
+        match dep {
+            SlotDep::Slot {
+                slot: Some(s),
+                op: Some(SlotOperator::Equal),
+            } => {
+                assert_eq!(s.slot, "0");
+                assert!(s.subslot.is_none());
+            }
+            _ => panic!("expected Slot with Equal operator"),
+        }
+    }
+
+    #[test]
+    fn test_subslot_with_operator() {
+        let dep = SlotDep::parse("0/1.75=").unwrap();
+        match dep {
+            SlotDep::Slot {
+                slot: Some(s),
+                op: Some(SlotOperator::Equal),
+            } => {
+                assert_eq!(s.slot, "0");
+                assert_eq!(s.subslot, Some(Interned::intern("1.75")));
+            }
+            _ => panic!("expected Slot with subslot and Equal operator"),
+        }
+    }
+
+    #[test]
+    fn test_slot_round_trip() {
+        let inputs = ["0", "3.12", "0/1.75", "=", "*", "0=", "0/1.75="];
+        for input in inputs {
+            let dep = SlotDep::parse(input).unwrap();
+            assert_eq!(dep.to_string(), input, "round-trip failed for: {input}");
+        }
+    }
 }

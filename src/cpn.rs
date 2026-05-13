@@ -25,7 +25,7 @@ use crate::error::{Error, Result};
 pub struct Cpn {
     /// The category portion (e.g. `dev-lang`, `app-misc`).
     ///
-    /// Must begin with an alphanumeric or underscore and may contain
+    /// Must begin with a character other than `-`, `.`, or `+` and may contain
     /// `[A-Za-z0-9+_.-]`. See [PMS 3.1.1].
     ///
     /// [PMS 3.1.1]: https://projects.gentoo.org/pms/9/pms.html#category-names
@@ -33,8 +33,8 @@ pub struct Cpn {
     pub category: Interned<DefaultInterner>,
     /// The package name portion (e.g. `rust`, `python`).
     ///
-    /// Must begin with an alphanumeric or underscore and may contain
-    /// `[A-Za-z0-9+_-.]`. The name must not end with a hyphen followed
+    /// Must begin with a character other than `-` or `+` and may contain
+    /// `[A-Za-z0-9+_-]`. The name must not end with a hyphen followed
     /// by something that matches the version syntax. See [PMS 3.1.2].
     ///
     /// [PMS 3.1.2]: https://projects.gentoo.org/pms/9/pms.html#package-names
@@ -267,5 +267,55 @@ mod tests {
         assert_eq!(cpn.category, "dev-lang");
         assert_eq!(cpn.package, "rust");
         assert_eq!(cpn.to_string(), "dev-lang/rust");
+    }
+
+    // --- PMS compliance tests ---
+
+    #[test]
+    fn test_category_pms_3_1_1() {
+        // PMS 3.1.1: [A-Za-z0-9+_.-], must not begin with hyphen, dot, or plus
+
+        // Valid categories
+        assert!(Cpn::parse("dev-lang/rust").is_ok());
+        assert!(Cpn::parse("dev.lang/rust").is_ok()); // dot in category
+        assert!(Cpn::parse("0cat/pkg").is_ok()); // digit-start category
+        assert!(Cpn::parse("_cat/pkg").is_ok()); // underscore-start category
+        assert!(Cpn::parse("dev+lang/rust").is_ok()); // plus in category (not at start)
+        assert!(Cpn::parse("a-b.c+d/pkg").is_ok()); // all allowed chars
+
+        // Invalid: starts with forbidden character
+        assert!(Cpn::parse("-cat/pkg").is_err());
+        assert!(Cpn::parse(".cat/pkg").is_err());
+        assert!(Cpn::parse("+cat/pkg").is_err());
+    }
+
+    #[test]
+    fn test_package_pms_3_1_2() {
+        // PMS 3.1.2: [A-Za-z0-9+_-], must not begin with hyphen or plus
+
+        // Valid packages
+        assert!(Cpn::parse("cat/c++").is_ok()); // plus in package name
+        assert!(Cpn::parse("cat/0package").is_ok()); // digit-start package
+        assert!(Cpn::parse("cat/a-b_c+d").is_ok()); // all allowed chars
+
+        // Invalid: starts with forbidden character
+        assert!(Cpn::parse("cat/-pkg").is_err());
+        assert!(Cpn::parse("cat/+pkg").is_err());
+    }
+
+    #[test]
+    fn test_cpn_round_trip() {
+        let inputs = [
+            "dev-lang/rust",
+            "app-office/libreoffice",
+            "dev.lang/gimp",
+            "acct-user/_cron-failure",
+            "sys-kernel/gentoo-sources",
+            "cat/c++",
+        ];
+        for input in inputs {
+            let cpn = Cpn::parse(input).unwrap();
+            assert_eq!(cpn.to_string(), input, "round-trip failed for: {input}");
+        }
     }
 }

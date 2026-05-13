@@ -922,4 +922,90 @@ mod tests {
             _ => panic!("expected UseConditional"),
         }
     }
+
+    // --- PMS compliance tests ---
+
+    #[test]
+    fn test_use_flag_with_at_sign() {
+        // PMS 3.1.4: USE flag names may contain [A-Za-z0-9+_@-]
+        // @ is deprecated (was for LINGUAS) but still valid
+        let entries = DepEntry::parse("foo@bar? ( dev-libs/openssl )").unwrap();
+        match &entries[0] {
+            DepEntry::UseConditional { flag, .. } => {
+                assert_eq!(flag, "foo@bar");
+            }
+            _ => panic!("expected UseConditional"),
+        }
+    }
+
+    #[test]
+    fn test_is_use_conditional_discriminant() {
+        // USE conditionals are identified by '? (' pattern
+        assert!(is_use_conditional("ssl? ( dev-libs/openssl )"));
+        assert!(is_use_conditional("!debug? ( dev-libs/bar )"));
+        assert!(is_use_conditional("test?(\tdev-libs/x )"));
+        assert!(is_use_conditional("X?( y )"));
+
+        // Not USE conditionals — these are atoms
+        assert!(!is_use_conditional("dev-libs/openssl"));
+        assert!(!is_use_conditional("!dev-libs/old"));
+        assert!(!is_use_conditional("!!dev-libs/old"));
+        assert!(!is_use_conditional(">=dev-lang/rust-1.0"));
+        assert!(!is_use_conditional("dev-libs/openssl:0"));
+        assert!(!is_use_conditional("dev-libs/openssl[ssl]"));
+    }
+
+    #[test]
+    fn test_deeply_nested() {
+        // USE conditional inside any-of inside USE conditional
+        let input = "ssl? ( || ( dev-libs/openssl !libressl? ( dev-libs/libressl ) ) )";
+        let entries = DepEntry::parse(input).unwrap();
+        assert_eq!(entries.len(), 1);
+        match &entries[0] {
+            DepEntry::UseConditional {
+                flag,
+                negate,
+                children,
+                ..
+            } => {
+                assert_eq!(flag, "ssl");
+                assert!(!negate);
+                assert_eq!(children.len(), 1);
+                match &children[0] {
+                    DepEntry::AnyOf(inner) => {
+                        assert_eq!(inner.len(), 2);
+                        assert!(matches!(&inner[0], DepEntry::Atom(_)));
+                        match &inner[1] {
+                            DepEntry::UseConditional { flag, negate, .. } => {
+                                assert_eq!(flag, "libressl");
+                                assert!(negate);
+                            }
+                            _ => panic!("expected UseConditional"),
+                        }
+                    }
+                    _ => panic!("expected AnyOf"),
+                }
+            }
+            _ => panic!("expected UseConditional"),
+        }
+    }
+
+    #[test]
+    fn test_dep_entry_round_trip_complex() {
+        let inputs = [
+            "dev-lang/rust dev-libs/bar",
+            "|| ( dev-libs/openssl dev-libs/libressl )",
+            "ssl? ( dev-libs/openssl ) !ssl? ( dev-libs/libressl )",
+            "|| ( ssl? ( dev-libs/openssl ) dev-libs/gnutls )",
+            "^^ ( dev-libs/a dev-libs/b ) ?? ( dev-libs/c dev-libs/d )",
+            "!dev-libs/old !!dev-libs/older >=dev-lang/rust-1.75.0:0[ssl]::gentoo",
+        ];
+        for input in inputs {
+            let entries = DepEntry::parse(input).unwrap();
+            let displayed: Vec<String> = entries.iter().map(|e| e.to_string()).collect();
+            let rejoined = displayed.join(" ");
+            let reparsed = DepEntry::parse(&rejoined).unwrap();
+            assert_eq!(entries, reparsed, "round-trip failed for: {input}");
+        }
+    }
 }
