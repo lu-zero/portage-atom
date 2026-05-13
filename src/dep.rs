@@ -9,6 +9,7 @@ use winnow::prelude::*;
 use crate::cpn::{Cpn, parse_cpn};
 use crate::cpv::{Cpv, parse_cpv};
 use crate::error::{Error, Result};
+use crate::parsers::has_version_suffix;
 use crate::slot::{SlotDep, parse_slot_dep};
 use crate::use_dep::{UseDep, parse_use_deps};
 use crate::version::Version;
@@ -206,6 +207,17 @@ impl FromStr for Dep {
 
 // Winnow parsers
 
+fn parse_cpn_or_cpv(input: &mut &str) -> ModalResult<(Cpn, Option<crate::version::Version>)> {
+    if has_version_suffix(input) {
+        match parse_cpv.parse_next(input) {
+            Ok(cpv) => return Ok((cpv.cpn, Some(cpv.version))),
+            Err(winnow::error::ErrMode::Backtrack(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    parse_cpn.parse_next(input).map(|cpn| (cpn, None))
+}
+
 /// Parse blocker prefix
 fn parse_blocker(input: &mut &str) -> ModalResult<Blocker> {
     alt(("!!".value(Blocker::Strong), "!".value(Blocker::Weak))).parse_next(input)
@@ -234,17 +246,12 @@ pub(crate) fn parse_dep(input: &mut &str) -> ModalResult<Dep> {
 
     // Try to parse as CPV first (contains version), fall back to CPN
     let (cpn, mut version) = if operator.is_some() {
-        // Operator requires version — commit to parsing a CPV
         let cpv = cut_err(parse_cpv)
             .context(StrContext::Label("versioned atom"))
             .parse_next(input)?;
         (cpv.cpn, Some(cpv.version))
     } else {
-        alt((
-            parse_cpv.map(|cpv| (cpv.cpn, Some(cpv.version))),
-            parse_cpn.map(|cpn| (cpn, None)),
-        ))
-        .parse_next(input)?
+        parse_cpn_or_cpv.parse_next(input)?
     };
 
     // Apply operator if we have one

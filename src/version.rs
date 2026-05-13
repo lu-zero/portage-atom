@@ -544,6 +544,27 @@ pub(crate) fn parse_version(input: &mut &str) -> ModalResult<Version> {
         .parse_next(input)
 }
 
+pub(crate) fn parse_version_no_raw(input: &mut &str) -> ModalResult<Version> {
+    (
+        separated(1.., parse_number, '.'),
+        opt(parse_letter),
+        repeat(0.., parse_suffix),
+        opt(parse_revision),
+        opt('*'),
+    )
+        .map(|(numbers, letter, suffixes, revision, has_glob)| Version {
+            op: None,
+            numbers,
+            letter,
+            suffixes,
+            revision: revision.unwrap_or_default(),
+            glob: has_glob.is_some(),
+            raw: None,
+        })
+        .context(StrContext::Label("version"))
+        .parse_next(input)
+}
+
 pub(crate) fn parse_operator(input: &mut &str) -> ModalResult<Operator> {
     alt((
         "<=".value(Operator::LessOrEqual),

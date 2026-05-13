@@ -9,8 +9,8 @@ use winnow::prelude::*;
 
 use crate::cpn::{Cpn, parse_category, parse_package};
 use crate::error::{Error, Result};
-use crate::parsers::parse_ident_with_dot_star;
-use crate::version::{Version, parse_version};
+use crate::parsers::{find_last_hyphen_digit, parse_ident_with_dot_star};
+use crate::version::{Version, parse_version, parse_version_no_raw};
 
 /// Category/Package/Version (Cpv)
 ///
@@ -46,7 +46,7 @@ impl Cpv {
     /// Returns an error if the string does not conform to the PMS format or
     /// naming rules.
     pub fn parse(input: &str) -> Result<Self> {
-        parse_cpv
+        parse_cpv_with_raw
             .parse(input)
             .map_err(|e| Error::InvalidCpv(format!("{}: {}", input, e)))
     }
@@ -90,31 +90,26 @@ impl FromStr for Cpv {
 
 // Winnow parsers
 
-/// Parse Cpv (category/package-version)
-/// Package names can contain hyphens, so we need to find the version boundary
-/// Per PMS, version always starts after the LAST hyphen followed by a digit
+/// Parse a `category/package-version` string (without storing the raw version).
+///
+/// Package names can contain hyphens, so the version boundary is found at the
+/// last hyphen followed by a digit (per PMS).
 pub(crate) fn parse_cpv(input: &mut &str) -> ModalResult<Cpv> {
+    parse_cpv_impl(input, parse_version_no_raw)
+}
+
+fn parse_cpv_impl(
+    input: &mut &str,
+    mut version_parser: impl Fn(&mut &str) -> ModalResult<Version>,
+) -> ModalResult<Cpv> {
     (parse_category, '/', cut_err(parse_ident_with_dot_star))
-        .verify_map(|(category, _, pkg_ver): (Interned<_>, char, &str)| {
-            // Find the last -<digit> boundary to split package from version
-            let bytes = pkg_ver.as_bytes();
-            let mut version_start = None;
-
-            for i in 0..bytes.len() {
-                if bytes[i] == b'-' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-                    version_start = Some(i);
-                }
-            }
-
-            let version_pos = version_start?;
+        .verify_map(move |(category, _, pkg_ver): (Interned<_>, char, &str)| {
+            let version_pos = find_last_hyphen_digit(pkg_ver)?;
             let pkg_str = &pkg_ver[..version_pos];
             let ver_str = &pkg_ver[version_pos + 1..];
 
-            // Validate package name
             let package = parse_package.parse(pkg_str).ok()?;
-
-            // Parse version
-            let version = parse_version.parse(ver_str).ok()?;
+            let version = version_parser.parse(ver_str).ok()?;
 
             Some(Cpv {
                 cpn: Cpn { category, package },
@@ -123,6 +118,10 @@ pub(crate) fn parse_cpv(input: &mut &str) -> ModalResult<Cpv> {
         })
         .context(StrContext::Label("cpv"))
         .parse_next(input)
+}
+
+fn parse_cpv_with_raw(input: &mut &str) -> ModalResult<Cpv> {
+    parse_cpv_impl(input, parse_version)
 }
 
 #[cfg(test)]

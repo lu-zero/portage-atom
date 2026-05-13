@@ -2,9 +2,7 @@ use std::fmt;
 
 use gentoo_interner::{DefaultInterner, Interned};
 use winnow::ascii::{multispace0, multispace1};
-use winnow::combinator::{
-    alt, cut_err, delimited, dispatch, opt, peek, preceded, repeat, terminated,
-};
+use winnow::combinator::{cut_err, delimited, dispatch, opt, peek, preceded, repeat, terminated};
 use winnow::error::StrContext;
 use winnow::prelude::*;
 use winnow::token::any;
@@ -153,6 +151,33 @@ fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
         .parse_next(input)
 }
 
+/// Returns true if the remaining input looks like a USE-conditional
+/// (`[!]flag?`) rather than a plain dependency atom.
+///
+/// USE-conditionals are a single identifier token followed by `?`.
+/// Dep atoms always contain `/` (category separator) after the first token,
+/// or start with `!` followed by another `!` (strong blocker) or a category.
+fn looks_like_use_conditional(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let mut i = 0;
+
+    if i < bytes.len() && bytes[i] == b'!' {
+        i += 1;
+        if i < bytes.len() && bytes[i] == b'!' {
+            return false;
+        }
+    }
+
+    let start = i;
+    while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'_' | b'+' | b'-'))
+    {
+        i += 1;
+    }
+
+    i > start && i < bytes.len() && bytes[i] == b'?'
+}
+
 /// Parse a single dependency entry.
 ///
 /// Uses `dispatch!(peek(any); ...)` to route on the first character:
@@ -160,8 +185,8 @@ fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 /// - `^` → exactly-one-of group (`^^ ( ... )`)
 /// - `?` → at-most-one-of group (`?? ( ... )`)
 /// - `(` → all-of group (`( ... )`)
-/// - `>`, `<`, `~`, `=` → versioned atom (skip USE-conditional attempt)
-/// - anything else → try USE conditional first, fall back to atom
+/// - `>`, `<`, `~`, `=` → versioned atom
+/// - anything else → lookahead to distinguish USE-conditional from atom
 fn parse_dep_entry(input: &mut &str) -> ModalResult<DepEntry> {
     dispatch! {peek(any);
         '|' => parse_any_of,
@@ -171,14 +196,20 @@ fn parse_dep_entry(input: &mut &str) -> ModalResult<DepEntry> {
         '>' | '<' | '~' | '=' => parse_dep
             .context(StrContext::Label("dependency atom"))
             .map(DepEntry::Atom),
-        _ => alt((
-            parse_use_conditional,
-            parse_dep
-                .context(StrContext::Label("dependency atom"))
-                .map(DepEntry::Atom),
-        )),
+        _ => dispatch_dep_entry_fallback,
     }
     .parse_next(input)
+}
+
+fn dispatch_dep_entry_fallback(input: &mut &str) -> ModalResult<DepEntry> {
+    if looks_like_use_conditional(input) {
+        parse_use_conditional.parse_next(input)
+    } else {
+        parse_dep
+            .context(StrContext::Label("dependency atom"))
+            .map(DepEntry::Atom)
+            .parse_next(input)
+    }
 }
 
 /// Parse `|| ( entry+ )`.
