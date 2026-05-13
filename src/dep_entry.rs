@@ -9,7 +9,7 @@ use winnow::token::any;
 
 use crate::dep::{Dep, parse_dep};
 use crate::error::{Error, Result};
-use crate::parsers::parse_ident_base;
+use crate::parsers::parse_ident_with_at;
 
 /// Structured dependency tree entry.
 ///
@@ -152,38 +152,29 @@ fn parse_dep_entries(input: &mut &str) -> ModalResult<Vec<DepEntry>> {
 }
 
 /// Quick lookahead: returns `true` when the remaining input is a USE-conditional
-/// (`flag?` / `!flag?`) rather than a dependency atom.
+/// (`flag? ( ... )` / `!flag? ( ... )`) rather than a dependency atom.
 ///
-/// PMS 8.2: USE-conditionals are `<flag>?` or `!<flag>?`. Dependency atoms are
-/// `<cat>/<pkg>...` or `!<cat>/<pkg>...` / `!!<cat>/<pkg>...`.  After the
-/// optional `!` prefix, the first identifier token is followed by `?` in a
-/// USE-conditional but `/` in an atom — so we only need to scan as far as the
-/// first non-identifier byte.
+/// PMS 8.2 defines USE-conditionals as `'!'? flag-name '?' ws '(' ... ')'`.
+/// The discriminant is `?` followed by whitespace then `(`.  This sequence
+/// never appears in dependency atom syntax — category and package names
+/// (PMS 3.1.1, 3.1.2) use `[A-Za-z0-9+_.-]`, which does not contain `?`.
+///
+/// Short-circuits on `/`, `:`, or `[` — these are atom-only characters that
+/// appear before any `?` could in a USE-conditional.
 fn is_use_conditional(input: &str) -> bool {
     let bytes = input.as_bytes();
     let mut i = 0;
-
-    // Skip one optional `!` (negated USE conditional like `!flag?`).
-    // Two `!`s (`!!`) is always a strong blocker, never a USE conditional.
-    if bytes.first() == Some(&b'!') {
-        i += 1;
-        if bytes.get(i) == Some(&b'!') {
-            return false;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'?' => {
+                return bytes.get(i + 1) == Some(&b'(')
+                    || (bytes[i + 1].is_ascii_whitespace() && bytes.get(i + 2) == Some(&b'('));
+            }
+            b'/' | b':' | b'[' => return false,
+            _ => i += 1,
         }
     }
-
-    // Scan the identifier token (PMS USE flag names: [A-Za-z0-9_+-]).
-    let start = i;
-    while let Some(&b) = bytes.get(i) {
-        if b.is_ascii_alphanumeric() || matches!(b, b'_' | b'+' | b'-') {
-            i += 1;
-        } else {
-            break;
-        }
-    }
-
-    // Must have consumed at least one char and the next byte must be `?`.
-    i > start && bytes.get(i) == Some(&b'?')
+    false
 }
 
 /// Parse a single dependency entry.
@@ -259,13 +250,15 @@ fn parse_at_most_one_of(input: &mut &str) -> ModalResult<DepEntry> {
         .parse_next(input)
 }
 
-/// Parse `[!]flag? ( entry* )`.
+/// Parse `[!]flag? ( entry+ )` per PMS 8.2.
 ///
-/// Backtracks freely until `?` is consumed — after that, `cut_err`
-/// commits so a missing `( ... )` is a hard error.
+/// Uses `parse_ident_with_at` for the flag name (PMS 3.1.4: `[A-Za-z0-9+_@-]`,
+/// starting with alphanumeric). After `?`, `cut_err` commits so a missing
+/// `( ... )` is a hard error.
 fn parse_use_conditional(input: &mut &str) -> ModalResult<DepEntry> {
     let negate = opt('!').parse_next(input)?.is_some();
-    let flag: Interned<DefaultInterner> = parse_ident_base
+    let flag: Interned<DefaultInterner> = parse_ident_with_at
+        .verify(|s: &str| s.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()))
         .map(|s: &str| Interned::intern(s))
         .parse_next(input)?;
     '?'.parse_next(input)?;
