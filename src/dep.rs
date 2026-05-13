@@ -235,7 +235,7 @@ fn parse_repo(input: &mut &str) -> ModalResult<Interned<DefaultInterner>> {
 /// Parse full dependency atom
 /// Handles: [!|!!][op]cat/pkg[-ver][:slot][use][::repo]
 pub(crate) fn parse_dep(input: &mut &str) -> ModalResult<Dep> {
-    use crate::version::parse_operator;
+    use crate::version::{Operator, parse_operator};
     use winnow::combinator::fail;
 
     // Parse optional blocker
@@ -257,7 +257,13 @@ pub(crate) fn parse_dep(input: &mut &str) -> ModalResult<Dep> {
     // Apply operator if we have one
     if let Some(op) = operator {
         match &mut version {
-            Some(v) => v.op = Some(op),
+            Some(v) => {
+                // PMS 8.3.1: "An asterisk used with any other operator is illegal"
+                if v.glob && op != Operator::Equal {
+                    return fail.parse_next(input);
+                }
+                v.op = Some(op);
+            }
             None => return fail.parse_next(input), // Operator requires version
         }
     }
@@ -468,11 +474,14 @@ mod tests {
     }
 
     #[test]
-    fn test_glob_with_equal() {
-        // PMS 8.3.1: glob (*) only valid with = operator
+    fn test_glob_with_equal_only() {
+        // PMS 8.3.1: "An asterisk used with any other operator is illegal"
         assert!(Dep::parse("=dev-libs/a-1*").is_ok());
-        // TODO: PMS says "An asterisk used with any other operator is illegal"
-        // but we currently don't validate this at parse time.
+        assert!(Dep::parse(">=dev-libs/a-1*").is_err());
+        assert!(Dep::parse("<dev-libs/a-1*").is_err());
+        assert!(Dep::parse(">dev-libs/a-1*").is_err());
+        assert!(Dep::parse("<=dev-libs/a-1*").is_err());
+        assert!(Dep::parse("~dev-libs/a-1*").is_err());
     }
 
     #[test]

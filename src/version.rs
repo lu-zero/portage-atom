@@ -253,9 +253,27 @@ pub struct Version {
     pub raw: Option<String>,
 }
 
+impl Version {
+    fn numbers_eq(a: &[u64], b: &[u64]) -> bool {
+        let max_len = a.len().max(b.len());
+        for i in 0..max_len {
+            if a.get(i).copied().unwrap_or(0) != b.get(i).copied().unwrap_or(0) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn hash_numbers<H: Hasher>(numbers: &[u64], state: &mut H) {
+        // Hash from the first non-trailing-zero component backwards
+        let end = numbers.iter().rposition(|&n| n != 0).map_or(0, |p| p + 1);
+        numbers[..end].hash(state);
+    }
+}
+
 impl PartialEq for Version {
     fn eq(&self, other: &Self) -> bool {
-        self.numbers == other.numbers
+        Self::numbers_eq(&self.numbers, &other.numbers)
             && self.op == other.op
             && self.letter == other.letter
             && self.suffixes == other.suffixes
@@ -268,7 +286,7 @@ impl Eq for Version {}
 
 impl Hash for Version {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.numbers.hash(state);
+        Self::hash_numbers(&self.numbers, state);
         self.op.hash(state);
         self.letter.hash(state);
         self.suffixes.hash(state);
@@ -909,12 +927,13 @@ mod tests {
 
     #[test]
     fn test_version_unequal_component_count() {
-        // PMS: missing components treated as 0
+        // PMS: missing components treated as 0, so 1 == 1.0 == 1.0.0
         assert!(Version::parse("1.0").unwrap() < Version::parse("1.0.1").unwrap());
-        // Ord treats them as equal but Eq does not (numbers vectors differ)
-        let v1 = Version::parse("1").unwrap();
-        let v10 = Version::parse("1.0").unwrap();
-        assert!(v1.cmp(&v10) == Ordering::Equal, "Ord: 1 == 1.0");
+        assert_eq!(Version::parse("1").unwrap(), Version::parse("1.0").unwrap());
+        assert_eq!(
+            Version::parse("1").unwrap(),
+            Version::parse("1.0.0").unwrap()
+        );
     }
 
     #[test]
