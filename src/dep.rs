@@ -7,12 +7,12 @@ use winnow::error::StrContext;
 use winnow::prelude::*;
 
 use crate::cpn::{Cpn, parse_cpn};
-use crate::cpv::{Cpv, parse_cpv};
+use crate::cpv::{Cpv, parse_cpv, parse_cpv_with_glob};
 use crate::error::{Error, Result};
 use crate::parsers::has_version_suffix;
 use crate::slot::{SlotDep, parse_slot_dep};
 use crate::use_dep::{UseDep, parse_use_deps};
-use crate::version::Version;
+use crate::version::{Operator, Version};
 
 /// Package dependency blocker type
 ///
@@ -63,13 +63,26 @@ pub struct Dep {
     ///
     /// [PMS 8.3.2]: https://projects.gentoo.org/pms/9/pms.html#block-operator
     pub blocker: Option<Blocker>,
-    /// Optional version constraint with its comparison operator.
+    /// Optional version comparison operator.
     ///
-    /// The [`Version::op`] field holds the operator (`>=`, `=`, `~`, etc.).
+    /// See [PMS 8.3.1].
+    ///
+    /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
+    #[cfg_attr(feature = "builder", builder(default))]
+    pub op: Option<Operator>,
+    /// Optional version constraint.
+    ///
     /// See [PMS 8.3.1].
     ///
     /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub version: Option<Version>,
+    /// PMS glob suffix (`*`) for wildcard matching with `=` operator.
+    ///
+    /// Per PMS 8.3.1: "if the version specified has an asterisk immediately
+    /// following it, then only the given number of version components is used
+    /// for comparison". Only valid with `op = Some(Equal)`.
+    #[cfg_attr(feature = "builder", builder(default))]
+    pub glob: bool,
     /// Optional slot dependency (the portion after `:`).
     ///
     /// See [PMS 8.3.3].
@@ -99,7 +112,9 @@ impl Dep {
         Dep {
             cpn,
             blocker: None,
+            op: None,
             version: None,
+            glob: false,
             slot_dep: None,
             use_deps: None,
             repo: None,
@@ -144,30 +159,16 @@ impl fmt::Display for Dep {
             write!(f, "{}", blocker)?;
         }
 
-        if let Some(version) = &self.version {
-            if let Some(op) = version.op {
-                write!(f, "{}", op)?;
-            }
+        if let Some(op) = self.op {
+            write!(f, "{}", op)?;
         }
 
         write!(f, "{}", self.cpn)?;
 
         if let Some(version) = &self.version {
             write!(f, "-")?;
-            for (i, num) in version.numbers.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ".")?;
-                }
-                write!(f, "{num}")?;
-            }
-            if let Some(letter) = version.letter {
-                write!(f, "{letter}")?;
-            }
-            for suffix in &version.suffixes {
-                write!(f, "{suffix}")?;
-            }
-            write!(f, "{}", version.revision)?;
-            if version.glob {
+            version.fmt_version(f)?;
+            if self.glob {
                 write!(f, "*")?;
             }
         }
@@ -238,49 +239,41 @@ pub(crate) fn parse_dep(input: &mut &str) -> ModalResult<Dep> {
     use crate::version::{Operator, parse_operator};
     use winnow::combinator::fail;
 
-    // Parse optional blocker
     let blocker = opt(parse_blocker).parse_next(input)?;
 
-    // Parse optional operator (just the operator, not the version)
     let operator = opt(parse_operator).parse_next(input)?;
 
-    // Try to parse as CPV first (contains version), fall back to CPN
-    let (cpn, mut version) = if operator.is_some() {
-        let cpv = cut_err(parse_cpv)
+    let (cpn, version, glob) = if operator.is_some() {
+        let (cpv, glob) = cut_err(parse_cpv_with_glob)
             .context(StrContext::Label("versioned atom"))
             .parse_next(input)?;
-        (cpv.cpn, Some(cpv.version))
+        (cpv.cpn, Some(cpv.version), glob)
     } else {
-        parse_cpn_or_cpv.parse_next(input)?
+        let (cpn, version) = parse_cpn_or_cpv.parse_next(input)?;
+        (cpn, version, false)
     };
 
-    // Apply operator if we have one
     if let Some(op) = operator {
-        match &mut version {
-            Some(v) => {
-                // PMS 8.3.1: "An asterisk used with any other operator is illegal"
-                if v.glob && op != Operator::Equal {
-                    return fail.parse_next(input);
-                }
-                v.op = Some(op);
-            }
-            None => return fail.parse_next(input), // Operator requires version
+        if version.is_none() {
+            return fail.parse_next(input);
+        }
+        if glob && op != Operator::Equal {
+            return fail.parse_next(input);
         }
     }
 
-    // Parse optional slot dependency
     let slot_dep = opt(preceded(':', parse_slot_dep)).parse_next(input)?;
 
-    // Parse optional USE dependencies
     let use_deps = opt(parse_use_deps).parse_next(input)?;
 
-    // Parse optional repository
     let repo = opt(preceded("::", parse_repo)).parse_next(input)?;
 
     Ok(Dep {
         cpn,
         blocker,
+        op: operator,
         version,
+        glob,
         slot_dep,
         use_deps,
         repo,
@@ -364,9 +357,9 @@ mod tests {
         let dep = Dep::parse(dep_str).unwrap();
 
         assert_eq!(dep.blocker, Some(Blocker::Strong));
+        assert_eq!(dep.op, Some(Operator::GreaterOrEqual));
         assert!(dep.version.is_some());
         let version = dep.version.as_ref().unwrap();
-        assert_eq!(version.op, Some(Operator::GreaterOrEqual));
         assert_eq!(version.numbers[0], 1);
         assert_eq!(version.suffixes[0].kind, SuffixKind::Rc);
 
@@ -407,9 +400,11 @@ mod tests {
     #[cfg(feature = "builder")]
     fn test_dep_builder_versioned() {
         let cpn = Cpn::new("dev-lang", "rust");
-        let mut version = Version::new(&[1, 75, 0]);
-        version.op = Some(Operator::GreaterOrEqual);
-        let dep = Dep::builder(cpn).version(version).build();
+        let version = Version::new(&[1, 75, 0]);
+        let dep = Dep::builder(cpn)
+            .op(Operator::GreaterOrEqual)
+            .version(version)
+            .build();
         assert!(dep.version.is_some());
         assert_eq!(dep.to_string(), ">=dev-lang/rust-1.75.0");
     }
@@ -432,10 +427,9 @@ mod tests {
     fn test_dep_builder_roundtrip() {
         let original = Dep::parse(">=dev-lang/rust-1.75.0:0[ssl,-debug]::gentoo").unwrap();
 
-        let mut version = original.version.clone().unwrap();
-        version.op = Some(Operator::GreaterOrEqual);
         let built = Dep::builder(original.cpn)
-            .version(version)
+            .op(Operator::GreaterOrEqual)
+            .version(original.version.clone().unwrap())
             .slot_dep(original.slot_dep.clone().unwrap())
             .use_deps(original.use_deps.clone().unwrap())
             .repo("gentoo")
@@ -458,19 +452,16 @@ mod tests {
         ];
         for (input, expected_op) in cases {
             let dep = Dep::parse(input).unwrap();
-            let v = dep.version.as_ref().unwrap();
-            assert_eq!(v.op, Some(expected_op), "operator mismatch for: {input}");
+            assert_eq!(dep.op, Some(expected_op), "operator mismatch for: {input}");
             assert_eq!(dep.to_string(), input, "round-trip failed for: {input}");
         }
     }
 
     #[test]
     fn test_approximate_operator() {
-        // PMS 8.3.1: ~ ignores revision
         let dep = Dep::parse("~dev-lang/rust-1.75.0").unwrap();
-        let v = dep.version.as_ref().unwrap();
-        assert_eq!(v.op, Some(Operator::Approximate));
-        assert_eq!(v.numbers, vec![1, 75, 0]);
+        assert_eq!(dep.op, Some(Operator::Approximate));
+        assert_eq!(dep.version.as_ref().unwrap().numbers, vec![1, 75, 0]);
     }
 
     #[test]

@@ -293,7 +293,6 @@ mod tests {
     use crate::dep::Blocker;
     use crate::use_dep::{UseDefault, UseDepKind};
     use crate::version::{Operator, Revision, Version};
-    use std::cmp::Ordering;
 
     #[test]
     fn empty_string() {
@@ -772,9 +771,8 @@ mod tests {
             DepEntry::Atom(dep) => {
                 assert_eq!(dep.package(), "nvidia-cuda-toolkit");
                 assert!(dep.version.is_some());
-                let version = dep.version.as_ref().unwrap();
-                assert_eq!(version.op, Some(Operator::Equal));
-                assert!(version.glob); // PMS: * is part of version, not operator
+                assert_eq!(dep.op, Some(Operator::Equal));
+                assert!(dep.glob);
             }
             _ => panic!("expected Atom"),
         }
@@ -785,9 +783,8 @@ mod tests {
             DepEntry::Atom(dep) => {
                 assert_eq!(dep.package(), "gcc");
                 assert!(dep.version.is_some());
-                let version = dep.version.as_ref().unwrap();
-                assert_eq!(version.op, Some(Operator::Equal));
-                assert!(version.glob); // PMS: * is part of version, not operator
+                assert_eq!(dep.op, Some(Operator::Equal));
+                assert!(dep.glob);
             }
             _ => panic!("expected Atom"),
         }
@@ -798,51 +795,43 @@ mod tests {
     fn test_glob_version_matching() {
         // PMS: =1.2* should match 1.2.3, 1.2.4, etc.
         let v1_2_star = Version {
-            op: None,
             numbers: vec![1, 2],
             letter: None,
             suffixes: vec![],
             revision: Revision(0),
-            glob: true,
             raw: None,
         };
 
         let v1_2_3 = Version {
-            op: None,
             numbers: vec![1, 2, 3],
             letter: None,
             suffixes: vec![],
             revision: Revision(0),
-            glob: false,
             raw: None,
         };
 
         let v1_2_4 = Version {
-            op: None,
             numbers: vec![1, 2, 4],
             letter: None,
             suffixes: vec![],
             revision: Revision(0),
-            glob: false,
             raw: None,
         };
 
         let v1_3 = Version {
-            op: None,
             numbers: vec![1, 3],
             letter: None,
             suffixes: vec![],
             revision: Revision(0),
-            glob: false,
             raw: None,
         };
 
         // PMS glob matching: 1.2* should match 1.2.3 and 1.2.4
-        assert_eq!(v1_2_star.cmp(&v1_2_3), Ordering::Equal);
-        assert_eq!(v1_2_star.cmp(&v1_2_4), Ordering::Equal);
+        assert!(v1_2_3.glob_matches(&v1_2_star));
+        assert!(v1_2_4.glob_matches(&v1_2_star));
 
-        // But should not match 1.3*
-        assert_ne!(v1_2_star.cmp(&v1_3), Ordering::Equal);
+        // But should not match 1.3
+        assert!(!v1_3.glob_matches(&v1_2_star));
     }
 
     // Issue 4: Trailing comma in USE dep list

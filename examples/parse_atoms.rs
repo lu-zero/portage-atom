@@ -33,7 +33,7 @@ fn main() {
     println!("4. Dependency with version operator:");
     let dep = Dep::parse(">=dev-lang/rust-1.75.0").expect("Failed to parse dep");
     println!("   Input: >=dev-lang/rust-1.75.0");
-    println!("   Operator: {:?}", dep.version.as_ref().unwrap().op);
+    println!("   Operator: {:?}", dep.op);
     println!("   Output: {}\n", dep);
 
     // Dependency with slot

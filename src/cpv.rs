@@ -95,7 +95,29 @@ impl FromStr for Cpv {
 /// Package names can contain hyphens, so the version boundary is found at the
 /// last hyphen followed by a digit (per PMS).
 pub(crate) fn parse_cpv(input: &mut &str) -> ModalResult<Cpv> {
-    parse_cpv_impl(input, parse_version_no_raw)
+    parse_cpv_impl(input, |i| parse_version_no_raw(i).map(|(v, _)| v))
+}
+
+pub(crate) fn parse_cpv_with_glob(input: &mut &str) -> ModalResult<(Cpv, bool)> {
+    (parse_category, '/', cut_err(parse_ident_with_dot_star))
+        .verify_map(|(category, _, pkg_ver): (Interned<_>, char, &str)| {
+            let version_pos = find_last_hyphen_digit(pkg_ver)?;
+            let pkg_str = &pkg_ver[..version_pos];
+            let ver_str = &pkg_ver[version_pos + 1..];
+
+            let package = parse_package.parse(pkg_str).ok()?;
+            let (version, glob) = parse_version_no_raw.parse(ver_str).ok()?;
+
+            Some((
+                Cpv {
+                    cpn: Cpn { category, package },
+                    version,
+                },
+                glob,
+            ))
+        })
+        .context(StrContext::Label("cpv"))
+        .parse_next(input)
 }
 
 fn parse_cpv_impl(

@@ -223,16 +223,12 @@ impl fmt::Display for Operator {
 /// - **Revision** — a dedicated `-rN` component for distribution-level changes.
 /// - **Ordering** — `_p` sorts *above* the base version; semver pre-releases
 ///   always sort below.
-/// - **Glob suffix** — PMS allows `*` as wildcard for version components
-///   (e.g., `1.2*` matches `1.2.3`, `1.2.4`, etc.) when used with `=` operator.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "builder", derive(bon::Builder))]
 pub struct Version {
     /// Dot-separated numeric components (e.g. `[1, 2, 3]` for `1.2.3`).
     #[cfg_attr(feature = "builder", builder(start_fn))]
     pub numbers: Vec<u64>,
-    /// Version operator (set only inside a [`Dep`](crate::Dep)).
-    pub op: Option<Operator>,
     /// Optional single lowercase letter after the numeric components.
     pub letter: Option<char>,
     /// Zero or more version suffixes (`_alpha`, `_beta`, `_pre`, `_rc`, `_p`).
@@ -241,10 +237,6 @@ pub struct Version {
     /// Package revision; defaults to `0` (omitted from display).
     #[cfg_attr(feature = "builder", builder(default))]
     pub revision: Revision,
-    /// PMS glob suffix (`*`) for wildcard matching when used with `=` operator.
-    /// When present, only the specified number of version components are used for comparison.
-    #[cfg_attr(feature = "builder", builder(default))]
-    pub glob: bool,
     /// The version string exactly as parsed, preserving leading zeros
     /// (e.g. `"26.04.0"` instead of the reconstructed `"26.4.0"`).
     ///
@@ -307,23 +299,41 @@ impl Version {
             "Version must have at least one numeric component per PMS 3.2"
         );
         Version {
-            op: None,
             numbers: numbers.to_vec(),
             letter: None,
             suffixes: Vec::new(),
             revision: Revision::default(),
-            glob: false,
             raw: None,
         }
     }
 
     /// Parse a version string (without a leading operator).
     ///
-    /// Accepts forms like `1.2.3`, `1.2.3a_rc1_p2-r5`, `1.2*`.
+    /// Accepts forms like `1.2.3`, `1.2.3a_rc1_p2-r5`.
     pub fn parse(input: &str) -> Result<Self> {
         parse_version
             .parse(input)
             .map_err(|e| Error::InvalidVersion(format!("{}: {}", input, e)))
+    }
+
+    /// Check whether this version matches a glob pattern (PMS 8.3.1 `=V*`).
+    ///
+    /// Compares only the numeric components present in `pattern`. If `pattern`
+    /// specifies a letter, the candidate must match it exactly.
+    pub fn glob_matches(&self, pattern: &Version) -> bool {
+        for i in 0..pattern.numbers.len() {
+            let a = self.numbers.get(i).copied().unwrap_or(0);
+            let b = pattern.numbers.get(i).copied().unwrap_or(0);
+            if a != b {
+                return false;
+            }
+        }
+        if let Some(pattern_letter) = pattern.letter {
+            if self.letter.unwrap_or('\0') != pattern_letter {
+                return false;
+            }
+        }
+        true
     }
 
     /// Return the version without its revision, for `~` (approximate)
@@ -332,12 +342,10 @@ impl Version {
     /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub fn base(&self) -> Self {
         Version {
-            op: None,
             numbers: self.numbers.clone(),
             letter: self.letter,
             suffixes: self.suffixes.clone(),
             revision: Revision::default(),
-            glob: false,
             raw: None,
         }
     }
@@ -348,12 +356,10 @@ impl Version {
     /// [PMS 8.3.1]: https://projects.gentoo.org/pms/9/pms.html#operators
     pub fn without_suffix(&self) -> Self {
         Version {
-            op: None,
             numbers: self.numbers.clone(),
             letter: self.letter,
             suffixes: Vec::new(),
             revision: Revision::default(),
-            glob: false,
             raw: None,
         }
     }
@@ -378,9 +384,6 @@ impl Version {
                 write!(f, "{suffix}")?;
             }
             write!(f, "{}", self.revision)?;
-            if self.glob {
-                write!(f, "*")?;
-            }
             Ok(())
         }
     }
@@ -388,9 +391,6 @@ impl Version {
 
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(op) = &self.op {
-            write!(f, "{op}")?;
-        }
         self.fmt_version(f)
     }
 }
@@ -404,14 +404,6 @@ impl PartialOrd for Version {
 
 impl Ord for Version {
     fn cmp(&self, other: &Self) -> Ordering {
-        // PMS 8.3.1: glob matching — only compare the specified components
-        if self.glob {
-            return self.glob_cmp(other);
-        }
-        if other.glob {
-            return other.glob_cmp(self).reverse();
-        }
-
         // Compare numeric components
         let max_len = self.numbers.len().max(other.numbers.len());
         for i in 0..max_len {
@@ -462,45 +454,6 @@ impl Ord for Version {
     }
 }
 
-impl Version {
-    /// PMS glob comparison for versions ending with `*`
-    /// Per PMS 8.3.1: "if the version specified has an asterisk immediately following it,
-    /// then only the given number of version components is used for comparison"
-    fn glob_cmp(&self, other: &Version) -> Ordering {
-        // Compare only the number of components specified in self (before *)
-        let self_components = self.numbers.len();
-
-        // Compare numeric components up to self's component count
-        for i in 0..self_components {
-            let a = self.numbers.get(i).copied().unwrap_or(0);
-            let b = other.numbers.get(i).copied().unwrap_or(0);
-            match a.cmp(&b) {
-                Ordering::Equal => continue,
-                other => return other,
-            }
-        }
-
-        // If the glob constraint specifies a letter, the candidate must match
-        // it exactly.  If the constraint has no letter, the candidate's letter
-        // (if any) is irrelevant — it falls under "any further components"
-        // per PMS 8.3.1.
-        if let Some(self_letter) = self.letter {
-            let other_letter = other.letter.unwrap_or('\0');
-            if self_letter != other_letter {
-                return self_letter.cmp(&other_letter);
-            }
-        }
-
-        // PMS: glob matching succeeds if prefix matches
-        // Only fail if other has fewer components than self
-        if other.numbers.len() < self_components {
-            Ordering::Greater // other is "less than" the glob pattern
-        } else {
-            Ordering::Equal // prefix matches, glob succeeds
-        }
-    }
-}
-
 // Winnow parsers
 
 fn parse_number(input: &mut &str) -> ModalResult<u64> {
@@ -540,25 +493,20 @@ pub(crate) fn parse_version(input: &mut &str) -> ModalResult<Version> {
         opt(parse_letter),
         repeat(0.., parse_suffix),
         opt(parse_revision),
-        opt('*'),
     )
         .with_taken()
-        .map(
-            |((numbers, letter, suffixes, revision, has_glob), raw)| Version {
-                op: None,
-                numbers,
-                letter,
-                suffixes,
-                revision: revision.unwrap_or_default(),
-                glob: has_glob.is_some(),
-                raw: Some(raw.to_string()),
-            },
-        )
+        .map(|((numbers, letter, suffixes, revision), raw)| Version {
+            numbers,
+            letter,
+            suffixes,
+            revision: revision.unwrap_or_default(),
+            raw: Some(raw.to_string()),
+        })
         .context(StrContext::Label("version"))
         .parse_next(input)
 }
 
-pub(crate) fn parse_version_no_raw(input: &mut &str) -> ModalResult<Version> {
+pub(crate) fn parse_version_no_raw(input: &mut &str) -> ModalResult<(Version, bool)> {
     (
         separated(1.., parse_number, '.'),
         opt(parse_letter),
@@ -566,14 +514,17 @@ pub(crate) fn parse_version_no_raw(input: &mut &str) -> ModalResult<Version> {
         opt(parse_revision),
         opt('*'),
     )
-        .map(|(numbers, letter, suffixes, revision, has_glob)| Version {
-            op: None,
-            numbers,
-            letter,
-            suffixes,
-            revision: revision.unwrap_or_default(),
-            glob: has_glob.is_some(),
-            raw: None,
+        .map(|(numbers, letter, suffixes, revision, has_glob)| {
+            (
+                Version {
+                    numbers,
+                    letter,
+                    suffixes,
+                    revision: revision.unwrap_or_default(),
+                    raw: None,
+                },
+                has_glob.is_some(),
+            )
         })
         .context(StrContext::Label("version"))
         .parse_next(input)
@@ -651,56 +602,8 @@ mod tests {
         assert!(v4 < v1);
     }
 
-    // Issue 3: = version prefix with glob * suffix
-    // Note: PMS specifies that * is part of the version, not the operator
-    // So there is no separate =* operator - just = operator with * in version
-    #[test]
-    fn test_version_with_glob_suffix() {
-        let version = Version::parse("1.2.3*").unwrap();
-        assert!(version.glob);
-        assert_eq!(version.numbers, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn test_version_glob_matching() {
-        // PMS 8.3.1: "if the version specified has an asterisk immediately following it,
-        // then only the given number of version components is used for comparison"
-
-        let glob_version = Version::parse("1.2.3*").unwrap();
-        assert!(glob_version.glob);
-
-        // Should match versions that start with 1.2.3
-        let v1 = Version::parse("1.2.3").unwrap();
-        let v2 = Version::parse("1.2.3.4").unwrap();
-        let v3 = Version::parse("1.2.3.4.5").unwrap();
-
-        // All should match the glob pattern
-        assert_eq!(glob_version.glob_cmp(&v1), std::cmp::Ordering::Equal);
-        assert_eq!(glob_version.glob_cmp(&v2), std::cmp::Ordering::Equal);
-        assert_eq!(glob_version.glob_cmp(&v3), std::cmp::Ordering::Equal);
-
-        // Should not match versions that don't start with 1.2.3
-        let v4 = Version::parse("1.2.4").unwrap();
-        assert_ne!(glob_version.glob_cmp(&v4), std::cmp::Ordering::Equal);
-    }
-
-    #[test]
-    fn test_version_with_letter_glob() {
-        // Test glob matching with letter suffix
-        let glob_version = Version::parse("1.2a*").unwrap();
-        assert!(glob_version.glob);
-
-        let v1 = Version::parse("1.2a").unwrap();
-        let v2 = Version::parse("1.2a_beta1").unwrap();
-
-        // Should match
-        assert_eq!(glob_version.glob_cmp(&v1), std::cmp::Ordering::Equal);
-        assert_eq!(glob_version.glob_cmp(&v2), std::cmp::Ordering::Equal);
-
-        // Should not match different letter
-        let v3 = Version::parse("1.2b").unwrap();
-        assert_ne!(glob_version.glob_cmp(&v3), std::cmp::Ordering::Equal);
-    }
+    // Issue 3: glob (*) suffix is now handled at the Dep level, not Version.
+    // See dep.rs tests for glob matching via Dep::parse("=pkg-ver*").
 
     #[test]
     fn test_version_component_count() {
@@ -725,7 +628,6 @@ mod tests {
         assert_eq!(v.letter, None);
         assert!(v.suffixes.is_empty());
         assert_eq!(v.revision.0, 0);
-        assert!(!v.glob);
         assert_eq!(v.to_string(), "1.75.0");
     }
 
@@ -751,14 +653,6 @@ mod tests {
         assert_eq!(v.suffixes.len(), 2);
         assert_eq!(v.revision.0, 3);
         assert_eq!(v.to_string(), "1.75.0a_rc1_p2-r3");
-    }
-
-    #[test]
-    #[cfg(feature = "builder")]
-    fn test_version_builder_glob() {
-        let v = Version::builder(vec![1, 2]).glob(true).build();
-        assert!(v.glob);
-        assert_eq!(v.to_string(), "1.2*");
     }
 
     #[test]
@@ -964,29 +858,19 @@ mod tests {
     #[test]
     fn test_version_eq_ord_consistency() {
         use std::cmp::Ordering;
-        let mut a = Version::parse("1.2.3").unwrap();
-        let mut b = Version::parse("1.2.3").unwrap();
+        let a = Version::parse("1.2.3").unwrap();
+        let b = Version::parse("1.2.3").unwrap();
 
         assert_eq!(a, b);
         assert_eq!(a.cmp(&b), Ordering::Equal);
 
-        a.op = Some(Operator::GreaterOrEqual);
-        assert_eq!(a, b, "op should not affect equality");
-        assert_eq!(a.cmp(&b), Ordering::Equal);
-
-        b.glob = true;
-        assert_eq!(a, b, "glob should not affect equality");
-        // glob changes Ord semantics (switches to glob_cmp), so we don't
-        // assert Ord here — we only assert that Eq ignores glob/opacity.
-
         let mut s = std::collections::HashSet::new();
         let v1 = Version::parse("1.2.3").unwrap();
-        let mut v2 = Version::parse("1.2.3").unwrap();
-        v2.op = Some(Operator::Less);
+        let v2 = Version::parse("1.2.3").unwrap();
         s.insert(v1.clone());
         assert!(
             s.contains(&v2),
-            "hash/equality must agree: same version with different op should be equal"
+            "hash/equality must agree for identical versions"
         );
     }
 }
