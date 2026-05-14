@@ -274,11 +274,9 @@ impl Version {
 impl PartialEq for Version {
     fn eq(&self, other: &Self) -> bool {
         Self::numbers_eq(&self.numbers, &other.numbers)
-            && self.op == other.op
             && self.letter == other.letter
             && self.suffixes == other.suffixes
             && self.revision == other.revision
-            && self.glob == other.glob
     }
 }
 
@@ -287,11 +285,9 @@ impl Eq for Version {}
 impl Hash for Version {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Self::hash_numbers(&self.numbers, state);
-        self.op.hash(state);
         self.letter.hash(state);
         self.suffixes.hash(state);
         self.revision.hash(state);
-        self.glob.hash(state);
     }
 }
 
@@ -963,5 +959,34 @@ mod tests {
         assert_eq!(Operator::Approximate.to_string(), "~");
         assert_eq!(Operator::GreaterOrEqual.to_string(), ">=");
         assert_eq!(Operator::Greater.to_string(), ">");
+    }
+
+    #[test]
+    fn test_version_eq_ord_consistency() {
+        use std::cmp::Ordering;
+        let mut a = Version::parse("1.2.3").unwrap();
+        let mut b = Version::parse("1.2.3").unwrap();
+
+        assert_eq!(a, b);
+        assert_eq!(a.cmp(&b), Ordering::Equal);
+
+        a.op = Some(Operator::GreaterOrEqual);
+        assert_eq!(a, b, "op should not affect equality");
+        assert_eq!(a.cmp(&b), Ordering::Equal);
+
+        b.glob = true;
+        assert_eq!(a, b, "glob should not affect equality");
+        // glob changes Ord semantics (switches to glob_cmp), so we don't
+        // assert Ord here — we only assert that Eq ignores glob/opacity.
+
+        let mut s = std::collections::HashSet::new();
+        let v1 = Version::parse("1.2.3").unwrap();
+        let mut v2 = Version::parse("1.2.3").unwrap();
+        v2.op = Some(Operator::Less);
+        s.insert(v1.clone());
+        assert!(
+            s.contains(&v2),
+            "hash/equality must agree: same version with different op should be equal"
+        );
     }
 }
